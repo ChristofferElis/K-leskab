@@ -107,6 +107,9 @@ nav svg{width:26px;height:26px}
 .sheet{overscroll-behavior:contain;-webkit-overflow-scrolling:touch;position:fixed;left:0;right:0;bottom:0;z-index:21;background:var(--bg);border-radius:24px 24px 0 0;max-width:640px;margin:0 auto;
   padding:10px 20px calc(22px + env(safe-area-inset-bottom));transform:translateY(105%);transition:transform .25s cubic-bezier(.2,.8,.2,1);max-height:92vh;overflow:auto}
 .sheet.on{transform:none}
+.sheetx{position:sticky;top:0;float:right;z-index:3;width:36px;height:36px;margin:2px -6px -38px 0;border-radius:50%;background:#e6e1d8;color:#4a544e;font-size:24px;line-height:1;display:grid;place-items:center;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.sheetx:active{background:#d9d3c8}
+.sheet h2{padding-right:44px}
 .grab{width:40px;height:5px;border-radius:3px;background:#d6d1c8;margin:0 auto 14px}
 .sheet h2{margin:0 0 2px;font-size:24px;letter-spacing:-.02em}
 .sheet .meta{margin-bottom:16px}
@@ -450,7 +453,7 @@ function toast(msg,small,ms){const t=$('toast');t.innerHTML=esc(msg)+(small?'<sm
 ['gesturestart','gesturechange','gestureend'].forEach(ev=>document.addEventListener(ev,e=>e.preventDefault(),{passive:false}));
 document.addEventListener('touchmove',e=>{if(e.touches.length>1)e.preventDefault()},{passive:false});
 document.addEventListener('dblclick',e=>e.preventDefault(),{passive:false});
-function openSheet(html){document.documentElement.classList.add('locked');$('toast').classList.remove('on');const s=$('sheet');const keep=s.classList.contains('on')?s.scrollTop:0;s.innerHTML='<div class="grab"></div>'+html;s.scrollTop=keep;s.classList.add('on');$('backdrop').classList.add('on')}
+function openSheet(html){document.documentElement.classList.add('locked');$('toast').classList.remove('on');const s=$('sheet');const keep=s.classList.contains('on')?s.scrollTop:0;s.innerHTML='<button class="sheetx" onclick="closeSheet()" aria-label="Luk">×</button><div class="grab"></div>'+html;s.scrollTop=keep;s.classList.add('on');$('backdrop').classList.add('on')}
 function closeSheet(){document.documentElement.classList.remove('locked');$('sheet').classList.remove('on');$('backdrop').classList.remove('on')}
 
 /* ---------- udløb ---------- */
