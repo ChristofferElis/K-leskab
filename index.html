@@ -19,6 +19,7 @@
   --warn:#a5650f;--warn-soft:#fbefd9;--bad:#b23b3b;--bad-soft:#f9e2df;
   --r:18px;--shadow:0 1px 2px rgba(30,40,35,.06),0 4px 14px rgba(30,40,35,.05);
 }
+[hidden]{display:none!important}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.4 -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,sans-serif}
 body{padding-bottom:calc(90px + env(safe-area-inset-bottom))}
@@ -140,6 +141,12 @@ nav svg{width:26px;height:26px}
 .sync{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--warn);background:var(--warn-soft);border-radius:999px;padding:3px 10px;margin-left:6px;vertical-align:1px}
 .kv{display:flex;justify-content:space-between;gap:12px;padding:13px 16px;border-bottom:1px solid var(--line);font-size:15px}
 .kv:last-child{border-bottom:0}.kv span:last-child{color:var(--muted);text-align:right;word-break:break-all}
+.chips .addc{border-style:dashed;color:var(--accent);background:transparent}
+.newcat{display:flex;gap:8px;margin-top:10px}.newcat input{flex:1;padding:11px 13px;border-radius:12px;border:1px solid var(--line);font-size:16px;outline:none;background:#fff}
+.newcat button{padding:0 16px;border-radius:12px;background:var(--accent);color:#fff;font-weight:650}
+.catrow{display:flex;align-items:center;gap:6px;padding:10px 10px 10px 16px;border-bottom:1px solid var(--line)}.catrow:last-child{border-bottom:0}
+.catrow .grow{font-weight:600}.catrow button{width:36px;height:36px;border-radius:10px;color:var(--muted);font-size:17px}.catrow button:disabled{opacity:.25}
+.section-title .n{font-weight:500;text-transform:none;letter-spacing:0}
 .newchip{font-size:13px;padding:4px 9px;border-radius:999px;background:var(--accent-soft);color:var(--accent);font-weight:600;white-space:nowrap}
 </style>
 </head>
@@ -175,8 +182,9 @@ var KOLESKAB_DEMO = false;
 /* ===== FÆLLES LOGIK – bruges både i appen og på serveren ===== */
 /* Varer der som udgangspunkt først genbestilles, når den sidste enhed er brugt */
 var WHOLE_DEFAULT=['æg'];
+var DEFAULT_CATS=['Mejeri','Pålæg','Grøntsager','Dressing','Frugt'];
 function emptyState(){
-  return {users:['',''],items:[],shopping:[],shopper:null,activity:[],known:[],prefs:{},seen:[],version:0};
+  return {users:['',''],items:[],shopping:[],shopper:null,activity:[],known:[],prefs:{},categories:DEFAULT_CATS.slice(),seen:[],version:0};
 }
 /* 'unit' = genbestil pr. enhed (fx mælk) · 'whole' = genbestil når alt er brugt (fx æg) */
 function modeOf(S,itemOrName){
@@ -186,11 +194,13 @@ function modeOf(S,itemOrName){
   if(p&&p.mode)return p.mode;
   return WHOLE_DEFAULT.indexOf(String(name).trim().toLowerCase())>=0?'whole':'unit';
 }
+/* Den kategori appen husker for en vare (eller null) */
+function catOf(S,name){var p=S.prefs&&S.prefs[String(name).trim().toLowerCase()];return p&&p.cat||null}
 /* Anvender en handling på tilstanden. Returnerer de notifikationer, der skal sendes.
    to: 'other' = kun den anden person, 'all' = begge. */
 function reduce(S,a){
   if(!a||!a.type)return [];
-  S.seen=S.seen||[];S.prefs=S.prefs||{};
+  S.seen=S.seen||[];S.prefs=S.prefs||{};if(!S.categories)S.categories=DEFAULT_CATS.slice();
   if(a.id){
     if(S.seen.indexOf(a.id)>=0)return [];
     S.seen.push(a.id);
@@ -221,7 +231,22 @@ function reduce(S,a){
   var findItem=function(id){return S.items.find(function(i){return i.id===id})};
   var setPref=function(name,patch){var k=key(name),p=S.prefs[k]||{};for(var x in patch)p[x]=patch[x];S.prefs[k]=p};
 
+  var validCat=function(c){c=String(c||'').trim();return S.categories.some(function(x){return x===c})?c:null};
   switch(a.type){
+    case 'addCategory':{
+      var cn=clean(a.name).slice(0,24);if(!cn)break;
+      if(!S.categories.some(function(x){return same(x,cn)}))S.categories.push(cn);
+      break;}
+    case 'removeCategory':{
+      S.categories=S.categories.filter(function(x){return x!==a.name});
+      S.items.forEach(function(i){if(i.category===a.name)i.category=null});
+      for(var pk in S.prefs)if(S.prefs[pk].cat===a.name)delete S.prefs[pk].cat;
+      break;}
+    case 'moveCategory':{
+      var ix=S.categories.indexOf(a.name),to=ix+(a.dir<0?-1:1);
+      if(ix<0||to<0||to>=S.categories.length)break;
+      S.categories.splice(ix,1);S.categories.splice(to,0,a.name);
+      break;}
     case 'setUsers':
       S.users=[clean(a.users&&a.users[0]),clean(a.users&&a.users[1])];
       break;
@@ -229,15 +254,17 @@ function reduce(S,a){
       var it=a.item||{}, name=clean(it.name);if(!name)break;
       var qty=Math.max(1,Math.min(999,+it.qty||1)), unit=it.unit||'stk', exp=it.expiry||null;
       var mode=it.mode==='whole'||it.mode==='unit'?it.mode:modeOf(S,name);
+      var cat='category' in it?validCat(it.category):catOf(S,name);
       var ex=S.items.find(function(i){return same(i.name,name)&&i.expiry===exp&&i.unit===unit});
-      if(ex){ex.qty+=qty;ex.mode=mode}else S.items.push({id:it.id||a.id,name:name,qty:qty,unit:unit,expiry:exp,mode:mode});
-      setPref(name,mode==='whole'?{mode:mode,pack:qty,unit:unit}:{mode:mode});
+      if(ex){ex.qty+=qty;ex.mode=mode;ex.category=cat}else S.items.push({id:it.id||a.id,name:name,qty:qty,unit:unit,expiry:exp,mode:mode,category:cat});
+      setPref(name,mode==='whole'?{mode:mode,pack:qty,unit:unit,cat:cat}:{mode:mode,cat:cat});
       remember(name);
       break;}
     case 'editItem':{
       var e=findItem(a.itemId);if(!e)break;
       if(a.qty!=null)e.qty=Math.max(1,Math.min(999,+a.qty||1));
       if('expiry' in a)e.expiry=a.expiry||null;
+      if('category' in a){e.category=validCat(a.category);setPref(e.name,{cat:e.category})}
       if(a.mode==='whole'||a.mode==='unit'){e.mode=a.mode;setPref(e.name,a.mode==='whole'?{mode:'whole',pack:e.qty,unit:e.unit}:{mode:'unit'})}
       break;}
     case 'useUp':{
@@ -290,7 +317,7 @@ function reduce(S,a){
       done.forEach(function(s){
         var p=S.prefs[key(s.name)]||{}, md=modeOf(S,s.name), q=s.qty, un=s.unit;
         if(s.unit==='pakke'&&md==='whole'){q=s.qty*(p.pack||1);un=p.unit||'stk'}
-        S.items.push({id:s.id+'f',name:s.name,qty:q,unit:un,expiry:null,mode:md});
+        S.items.push({id:s.id+'f',name:s.name,qty:q,unit:un,expiry:null,mode:md,category:catOf(S,s.name)});
       });
       S.shopping=S.shopping.filter(function(s){return !s.done});
       if(S.shopper&&!openCount())S.shopper=null;
@@ -351,8 +378,8 @@ function demoApi(path,body){
 }
 function demoSeed(){
   const S0=emptyState(),now=Date.now();
-  [['Mælk',2,'stk',3,'unit'],['Æg',6,'stk',12,'whole'],['Smør',1,'stk',21,'unit'],['Yoghurt',1,'stk',1,'unit'],['Hakket oksekød',1,'pk',0,'unit'],['Agurk',1,'stk',-1,'unit'],['Skiveost',1,'pk',14,'unit'],['Juice',1,'l',null,'unit']]
-    .forEach(([name,qty,unit,d,mode],i)=>reduce(S0,{type:'addItem',id:'d'+i,at:now,by:0,item:{id:'d'+i,name,qty,unit,expiry:d==null?null:addDays(d),mode}}));
+  [['Mælk',2,'stk',3,'unit','Mejeri'],['Æg',6,'stk',12,'whole',null],['Smør',1,'stk',21,'unit','Mejeri'],['Yoghurt',1,'stk',1,'unit','Mejeri'],['Spegepølse',1,'pk',0,'unit','Pålæg'],['Agurk',1,'stk',-1,'unit','Grøntsager'],['Skiveost',1,'pk',14,'unit','Mejeri'],['Remoulade',1,'stk',30,'unit','Dressing'],['Æbler',4,'stk',6,'unit','Frugt']]
+    .forEach(([name,qty,unit,d,mode,category],i)=>reduce(S0,{type:'addItem',id:'d'+i,at:now,by:0,item:{id:'d'+i,name,qty,unit,expiry:d==null?null:addDays(d),mode,category}}));
   S0.activity=[];return S0;
 }
 function demoReset(){LS.del('kb-demo-srv');LS.del('kb-state');LS.del('kb-pending');LS.del('kb-me');demoSrv=null;S=null;pending=[];meIdx=null;tab='fridge';boot()}
@@ -395,7 +422,7 @@ function renderSafe(){const a=document.activeElement;if(a&&a.tagName==='INPUT'&&
 
 /* ---------- toast & sheet ---------- */
 let tt;
-function toast(msg,small){const t=$('toast');t.innerHTML=esc(msg)+(small?'<small>'+esc(small)+'</small>':'');t.classList.add('on');clearTimeout(tt);tt=setTimeout(()=>t.classList.remove('on'),3000)}
+function toast(msg,small,ms){const t=$('toast');t.innerHTML=esc(msg)+(small?'<small>'+esc(small)+'</small>':'');t.classList.add('on');clearTimeout(tt);tt=setTimeout(()=>t.classList.remove('on'),ms||3000)}
 function openSheet(html){$('toast').classList.remove('on');const s=$('sheet');const keep=s.classList.contains('on')?s.scrollTop:0;s.innerHTML='<div class="grab"></div>'+html;s.scrollTop=keep;s.classList.add('on');$('backdrop').classList.add('on')}
 function closeSheet(){$('sheet').classList.remove('on');$('backdrop').classList.remove('on')}
 
@@ -497,19 +524,25 @@ async function enablePush(){
   if(!pushSupported){toast('Åbn appen fra hjemmeskærmen for at få notifikationer');return}
   let p;
   try{p=await Notification.requestPermission()}catch(e){p='denied'}
+  if(p==='granted')toast('Forbinder notifikationer…');
   if(p!=='granted'){toast('Notifikationer blev ikke tilladt','Kan ændres i iPhonens Indstillinger → Notifikationer');render();return}
   await subscribe(false);
 }
 async function subscribe(silent){
   try{
     if(!vapidKey){const r=await api('/api/state');vapidKey=r.vapid;LS.set('kb-vapid',vapidKey)}
-    const reg=await navigator.serviceWorker.ready;
+    let reg=await navigator.serviceWorker.getRegistration();
+    if(!reg){
+      try{reg=await navigator.serviceWorker.register('sw.js')}
+      catch(e){throw new Error('Filen sw.js blev ikke fundet på GitHub. Tjek at den hedder præcis sw.js.')}
+    }
+    reg=await Promise.race([navigator.serviceWorker.ready,new Promise((_,rej)=>setTimeout(()=>rej(new Error('Baggrundsdelen (sw.js) kunne ikke starte. Luk appen helt og åbn den igen.')),10000))]);
     let sub=await reg.pushManager.getSubscription();
     if(!sub)sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:b64uDec(vapidKey)});
     await api('/api/subscribe',{sub:sub.toJSON(),user:me()});
     LS.set('kb-push-ok',true);
     if(!silent)toast('Notifikationer er slået til',uname(other())+' får besked, når du ændrer noget');
-  }catch(e){LS.set('kb-push-ok',false);if(!silent)toast('Kunne ikke slå notifikationer til',e.message)}
+  }catch(e){LS.set('kb-push-ok',false);if(!silent)toast('Kunne ikke slå notifikationer til',e.message,9000)}
   renderSafe();
 }
 async function testPush(){
@@ -548,12 +581,17 @@ function renderFridge(){
   $('subtitle').textContent=items.length?(items.length+(items.length===1?' vare':' varer')+(soon?' · '+soon+' skal bruges snart':'')):'Tomt';
   let h=pushCard();
   if(!items.length)h+='<div class="empty"><b>Køleskabet er tomt</b>Tryk på + for at registrere en vare.</div>';
-  else h+='<div class="list" style="margin-top:6px">'+items.map(it=>{
-    const st=status(it);
-    return `<button class="row" onclick="openItem('${esc(it.id)}')">
+  else{
+    const row=it=>{const st=status(it);
+      return `<button class="row" onclick="openItem('${esc(it.id)}')">
       <span class="dot ${st.cls}"></span>
       <span class="grow"><div class="name">${esc(it.name)}</div><div class="meta">${it.qty} ${esc(it.unit)}</div></span>
-      <span class="${it.expiry?'chip '+st.chip:'newchip'}">${it.expiry?st.label:'Sæt dato'}</span></button>`}).join('')+'</div>';
+      <span class="${it.expiry?'chip '+st.chip:'newchip'}">${it.expiry?st.label:'Sæt dato'}</span></button>`};
+    const cats=S.categories||[];
+    const groups=[...cats.map(c=>({name:c,items:items.filter(i=>i.category===c)})),
+      {name:'Uden kategori',items:items.filter(i=>!i.category||cats.indexOf(i.category)<0)}].filter(g=>g.items.length);
+    h+=groups.map(g=>`<div class="section-title">${esc(g.name)} <span class="n">· ${g.items.length}</span></div><div class="list">${g.items.map(row).join('')}</div>`).join('');
+  }
   $('main').innerHTML=h;
 }
 let used=1;
@@ -561,7 +599,7 @@ function openItem(id,keepN){
   const it=S.items.find(i=>i.id===id);if(!it)return;
   if(!keepN)used=1;used=Math.min(used,it.qty);
   const st=status(it), whole=modeOf(S,it)==='whole', all=used>=it.qty, many=it.qty>1;
-  const E=esc(id);
+  const E=esc(id);curItem=id;newCatFor='item';
   const lbl=all?'Opbrugt':'Brugt '+used+' '+esc(it.unit);
   let buttons;
   if(whole&&!all){
@@ -584,10 +622,13 @@ function openItem(id,keepN){
         <input type="date" value="${esc(it.expiry||'')}" onchange="act('editItem',{itemId:'${E}',expiry:this.value||null});openItem('${E}',true)"></div>
     </div>
     <div class="chips" style="justify-content:center;margin-top:10px">${[[2,'+2 dage'],[4,'+4 dage'],[7,'+1 uge'],[14,'+2 uger']].map(([n,l])=>`<button onclick="act('editItem',{itemId:'${E}',expiry:addDays(${n})});openItem('${E}',true)">${l}</button>`).join('')}</div>
+    <div class="field"><label>Kategori</label><div class="chips" style="margin-top:0">${catChips(it.category,'itemPick')}</div>${newCatBox()}</div>
     <div class="field"><label>Genbestilling</label>
       <div class="seg"><button class="${whole?'':'on'}" onclick="act('editItem',{itemId:'${E}',mode:'unit'});openItem('${E}',true)">For hver enhed</button><button class="${whole?'on':''}" onclick="act('editItem',{itemId:'${E}',mode:'whole'});openItem('${E}',true)">Når alle er brugt</button></div></div>
     <button class="linkbtn" onclick="listOnly('${E}')">Sæt på indkøbslisten uden at bruge noget</button>`);
 }
+let curItem=null;
+function itemPick(i){const it=S.items.find(x=>x.id===curItem);if(!it)return;const c=S.categories[i];act('editItem',{itemId:curItem,category:it.category===c?null:c});openItem(curItem,true)}
 function useN(id,d){const it=S.items.find(i=>i.id===id);if(!it)return;used=Math.max(1,Math.min(it.qty,used+d));openItem(id,true)}
 function stepItem(id,d){const it=S.items.find(i=>i.id===id);if(!it)return;act('editItem',{itemId:id,qty:Math.max(1,it.qty+d)});openItem(id,true)}
 function useUp(id,reorder){
@@ -608,10 +649,11 @@ const COMMON=['Mælk','Letmælk','Skummetmælk','Æg','Smør','Ost','Skiveost','
 const nameList=()=>[...new Set([...(S.known||[]),...COMMON])];
 let draft;
 function openAdd(){
-  draft={qty:1,expiry:addDays(7),mode:null};
+  draft={qty:1,expiry:addDays(7),mode:null,cat:undefined};newCatFor='add';
   openSheet(`<h2>Ny vare</h2><div class="meta">Registrér hvad der er sat i køleskabet</div>
-    <div class="field"><label>Vare</label><input id="an" list="known" placeholder="Fx mælk" autocomplete="off" enterkeyhint="done" oninput="markMode()">
+    <div class="field"><label>Vare</label><input id="an" list="known" placeholder="Fx mælk" autocomplete="off" enterkeyhint="done" oninput="markMode();drawAddCats()">
       <datalist id="known">${nameList().map(n=>`<option value="${esc(n)}">`).join('')}</datalist></div>
+    <div class="field"><label>Kategori</label><div class="chips" style="margin-top:0" id="acats"></div>${newCatBox()}</div>
     <div class="two">
       <div class="field" style="margin:0"><label>Antal</label><div class="stepper"><button onclick="dq(-1)">−</button><span id="aq">1</span><button onclick="dq(1)">+</button></div></div>
       <div class="field" style="margin:0"><label>Enhed</label><select id="au">${['stk','pk','l','g','bakke','glas'].map(u=>`<option>${u}</option>`).join('')}</select></div>
@@ -621,15 +663,31 @@ function openAdd(){
     <div class="field"><label>Genbestilling</label><div class="seg" id="am"><button data-m="unit" onclick="draft.mode='unit';markMode()">For hver enhed</button><button data-m="whole" onclick="draft.mode='whole';markMode()">Når alle er brugt</button></div>
       <div class="meta" style="margin:6px 2px 0;font-size:13px">Fx mælk: hver enhed · æg: når bakken er tom</div></div>
     <button class="btn primary" style="margin-top:20px" onclick="saveAdd()">Læg i køleskabet</button>`);
-  markQuick(7);markMode();
+  markQuick(7);markMode();drawAddCats();
 }
 function dq(d){draft.qty=Math.max(1,draft.qty+d);$('aq').textContent=draft.qty}
 function quick(n){draft.expiry=n?addDays(n):null;$('ae').value=draft.expiry||'';markQuick(n)}
 function markQuick(n){document.querySelectorAll('#qc button').forEach(b=>b.classList.toggle('on',n!==null&&+b.dataset.n===n))}
 function markMode(){const m=draft.mode||modeOf(S,($('an')||{}).value||'');document.querySelectorAll('#am button').forEach(b=>b.classList.toggle('on',b.dataset.m===m))}
+/* ---------- kategorier ---------- */
+let newCatFor='add';
+function catChips(sel,pick){return (S.categories||[]).map((c,i)=>`<button class="${c===sel?'on':''}" onclick="${pick}(${i})">${esc(c)}</button>`).join('')+`<button class="addc" onclick="showNewCat()">+ Ny kategori</button>`}
+function newCatBox(){return `<form class="newcat" id="ncw" hidden onsubmit="event.preventDefault();saveNewCat()"><input id="nc" placeholder="Fx Kød & fisk" autocomplete="off" enterkeyhint="done"><button>Tilføj</button></form>`}
+function showNewCat(){const w=$('ncw');w.hidden=false;$('nc').focus()}
+function saveNewCat(){
+  const v=$('nc').value.trim();if(!v)return;
+  act('addCategory',{name:v});
+  const c=(S.categories||[]).find(x=>x.toLowerCase()===v.toLowerCase());
+  if(newCatFor==='add'){draft.cat=c;$('nc').value='';$('ncw').hidden=true;drawAddCats()}
+  else if(newCatFor==='item'&&curItem){act('editItem',{itemId:curItem,category:c});openItem(curItem,true)}
+  else render();
+}
+const curAddCat=()=>draft.cat!==undefined?draft.cat:catOf(S,($('an')||{}).value||'');
+function drawAddCats(){const el=$('acats');if(el)el.innerHTML=catChips(curAddCat(),'addPick')}
+function addPick(i){const c=S.categories[i];draft.cat=curAddCat()===c?null:c;drawAddCats()}
 function saveAdd(){
   const name=$('an').value.trim();if(!name){$('an').focus();return}
-  act('addItem',{item:{id:uid(),name,qty:draft.qty,unit:$('au').value,expiry:draft.expiry,mode:draft.mode||modeOf(S,name)}});
+  act('addItem',{item:{id:uid(),name,qty:draft.qty,unit:$('au').value,expiry:draft.expiry,mode:draft.mode||modeOf(S,name),category:curAddCat()}});
   closeSheet();toast(name.charAt(0).toUpperCase()+name.slice(1)+' er lagt i køleskabet');
 }
 
@@ -682,6 +740,13 @@ function renderUs(){
     ${st==='off'||st==='granted'?'<button class="btn primary" style="margin-top:10px" onclick="enablePush()">Slå notifikationer til</button>':''}
     ${st==='on'?'<button class="btn soft" style="margin-top:10px" onclick="testPush()">Send en test til mig selv</button>':''}
     <div class="note">Du får besked, når ${esc(uname(other()))} bruger en vare op, sætter noget på listen eller tager indkøbet. I får begge en besked om morgenen, hvis noget udløber i dag eller i morgen.</div>
+    <div class="section-title">Kategorier i køleskabet</div>
+    <div class="list">${(S.categories||[]).map((c,i,a)=>`<div class="catrow"><span class="grow">${esc(c)}</span>
+      <button onclick="act('moveCategory',{name:S.categories[${i}],dir:-1})" ${i===0?'disabled':''} aria-label="Flyt op">↑</button>
+      <button onclick="act('moveCategory',{name:S.categories[${i}],dir:1})" ${i===a.length-1?'disabled':''} aria-label="Flyt ned">↓</button>
+      <button onclick="act('removeCategory',{name:S.categories[${i}]})" aria-label="Slet" style="color:var(--bad)">×</button></div>`).join('')||'<div class="kv"><span>Ingen kategorier endnu</span></div>'}</div>
+    <form class="addbar" onsubmit="event.preventDefault();const v=$('ucat').value.trim();if(v){act('addCategory',{name:v})}"><input id="ucat" placeholder="Ny kategori, fx Drikkevarer" autocomplete="off"><button>Tilføj</button></form>
+    <div class="note">Rækkefølgen her er rækkefølgen i køleskabet. Sletter I en kategori, havner varerne under "Uden kategori".</div>
     <div class="section-title">Navne</div>
     <div class="list" style="padding:4px 16px 14px">
       <div class="field"><label>Person 1</label><input value="${esc(S.users[0])}" onchange="act('setUsers',{users:[this.value,S.users[1]]})"></div>
