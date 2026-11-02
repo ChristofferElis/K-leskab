@@ -2,7 +2,7 @@
 <html lang="da">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Køleskabet">
@@ -20,6 +20,13 @@
   --r:18px;--shadow:0 1px 2px rgba(30,40,35,.06),0 4px 14px rgba(30,40,35,.05);
 }
 [hidden]{display:none!important}
+/* stabilt app-interface: ingen zoom, ingen gummi-effekt, intet sidelæns */
+html,body{overscroll-behavior:none;overflow-x:hidden;-webkit-text-size-adjust:100%;text-size-adjust:100%;touch-action:pan-y}
+html.locked,html.locked body{overflow:hidden}
+button,.row,.chip,nav,header,.banner{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+button,a,input,select,textarea{touch-action:manipulation}
+input,select,textarea{font-size:16px}
+img{-webkit-user-drag:none;-webkit-touch-callout:none}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.4 -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,sans-serif}
 body{padding-bottom:calc(90px + env(safe-area-inset-bottom))}
@@ -97,7 +104,7 @@ nav svg{width:26px;height:26px}
 /* sheet */
 .backdrop{position:fixed;inset:0;background:rgba(20,28,24,.35);opacity:0;pointer-events:none;transition:opacity .2s;z-index:20}
 .backdrop.on{opacity:1;pointer-events:auto}
-.sheet{position:fixed;left:0;right:0;bottom:0;z-index:21;background:var(--bg);border-radius:24px 24px 0 0;max-width:640px;margin:0 auto;
+.sheet{overscroll-behavior:contain;-webkit-overflow-scrolling:touch;position:fixed;left:0;right:0;bottom:0;z-index:21;background:var(--bg);border-radius:24px 24px 0 0;max-width:640px;margin:0 auto;
   padding:10px 20px calc(22px + env(safe-area-inset-bottom));transform:translateY(105%);transition:transform .25s cubic-bezier(.2,.8,.2,1);max-height:92vh;overflow:auto}
 .sheet.on{transform:none}
 .grab{width:40px;height:5px;border-radius:3px;background:#d6d1c8;margin:0 auto 14px}
@@ -184,7 +191,7 @@ var KOLESKAB_DEMO = false;
 var WHOLE_DEFAULT=['æg'];
 var DEFAULT_CATS=['Mejeri','Pålæg','Grøntsager','Dressing','Frugt'];
 function emptyState(){
-  return {users:['',''],items:[],shopping:[],shopper:null,activity:[],known:[],prefs:{},categories:DEFAULT_CATS.slice(),seen:[],version:0};
+  return {users:['',''],items:[],shopping:[],shopper:null,activity:[],known:[],prefs:{},categories:DEFAULT_CATS.slice(),waste:[],seen:[],version:0};
 }
 /* 'unit' = genbestil pr. enhed (fx mælk) · 'whole' = genbestil når alt er brugt (fx æg) */
 function modeOf(S,itemOrName){
@@ -200,7 +207,7 @@ function catOf(S,name){var p=S.prefs&&S.prefs[String(name).trim().toLowerCase()]
    to: 'other' = kun den anden person, 'all' = begge. */
 function reduce(S,a){
   if(!a||!a.type)return [];
-  S.seen=S.seen||[];S.prefs=S.prefs||{};if(!S.categories)S.categories=DEFAULT_CATS.slice();
+  S.seen=S.seen||[];S.prefs=S.prefs||{};if(!S.categories)S.categories=DEFAULT_CATS.slice();if(!S.waste)S.waste=[];
   if(a.id){
     if(S.seen.indexOf(a.id)>=0)return [];
     S.seen.push(a.id);
@@ -285,6 +292,22 @@ function reduce(S,a){
         log('brugte '+what+' · '+u.qty+' tilbage');
       }
       break;}
+    case 'discard':{
+      var w=findItem(a.itemId);if(!w)break;
+      var wn=a.n==null?w.qty:Math.max(1,Math.min(w.qty,+a.n||1)), wlast=wn>=w.qty;
+      S.waste.unshift({id:a.id||String(at),name:w.name,qty:wn,unit:w.unit,category:w.category||null,expiry:w.expiry||null,by:by,at:at});
+      if(S.waste.length>500)S.waste.length=500;
+      w.qty-=wn;
+      if(w.qty<=0)S.items=S.items.filter(function(i){return i!==w});
+      log('smed '+(wlast?w.name.toLowerCase():wn+' '+w.unit+' '+w.name.toLowerCase())+' ud');
+      if(wlast)out.push({to:'other',title:w.name+' er smidt ud',body:'Registreret af '+nm(by),tag:'used'});
+      break;}
+    case 'deleteItem':
+      S.items=S.items.filter(function(i){return i.id!==a.itemId});
+      break;
+    case 'removeWaste':
+      S.waste=S.waste.filter(function(x){return x.id!==a.wasteId});
+      break;
     case 'listOnly':{
       var l=findItem(a.itemId);if(!l)break;
       reorder(l.name,1,l.unit);
@@ -423,8 +446,12 @@ function renderSafe(){const a=document.activeElement;if(a&&a.tagName==='INPUT'&&
 /* ---------- toast & sheet ---------- */
 let tt;
 function toast(msg,small,ms){const t=$('toast');t.innerHTML=esc(msg)+(small?'<small>'+esc(small)+'</small>':'');t.classList.add('on');clearTimeout(tt);tt=setTimeout(()=>t.classList.remove('on'),ms||3000)}
-function openSheet(html){$('toast').classList.remove('on');const s=$('sheet');const keep=s.classList.contains('on')?s.scrollTop:0;s.innerHTML='<div class="grab"></div>'+html;s.scrollTop=keep;s.classList.add('on');$('backdrop').classList.add('on')}
-function closeSheet(){$('sheet').classList.remove('on');$('backdrop').classList.remove('on')}
+/* lås zoom (to fingre) – iOS ignorerer delvist viewport-indstillingen */
+['gesturestart','gesturechange','gestureend'].forEach(ev=>document.addEventListener(ev,e=>e.preventDefault(),{passive:false}));
+document.addEventListener('touchmove',e=>{if(e.touches.length>1)e.preventDefault()},{passive:false});
+document.addEventListener('dblclick',e=>e.preventDefault(),{passive:false});
+function openSheet(html){document.documentElement.classList.add('locked');$('toast').classList.remove('on');const s=$('sheet');const keep=s.classList.contains('on')?s.scrollTop:0;s.innerHTML='<div class="grab"></div>'+html;s.scrollTop=keep;s.classList.add('on');$('backdrop').classList.add('on')}
+function closeSheet(){document.documentElement.classList.remove('locked');$('sheet').classList.remove('on');$('backdrop').classList.remove('on')}
 
 /* ---------- udløb ---------- */
 function status(it){
@@ -604,10 +631,12 @@ function openItem(id,keepN){
   let buttons;
   if(whole&&!all){
     buttons=`<button class="btn primary" onclick="useUp('${E}',false)">${lbl}</button>
+      <button class="btn danger" onclick="discard('${E}')">${all?'Smidt ud':'Smidt '+used+' '+esc(it.unit)+' ud'}</button>
       <div class="note" style="margin-top:10px">${esc(it.name)} kommer først på indkøbslisten, når den sidste er brugt.</div>`;
   }else{
     buttons=`<button class="btn primary" onclick="useUp('${E}',true)">${lbl} · Genbestil</button>
-      <button class="btn" onclick="useUp('${E}',false)">${lbl}</button>`;
+      <button class="btn" onclick="useUp('${E}',false)">${lbl}</button>
+      <button class="btn danger" onclick="discard('${E}')">${all?'Smidt ud':'Smidt '+used+' '+esc(it.unit)+' ud'}</button>`;
   }
   openSheet(`<h2>${esc(it.name)}</h2><div class="meta">${it.qty} ${esc(it.unit)} i køleskabet · ${it.expiry?'holdbar til '+fmtDate(it.expiry)+(daysUntil(it.expiry)<=3?' ('+st.label.toLowerCase()+')':''):'ingen udløbsdato'}</div>
     ${many?`<div class="field" style="margin-top:0"><label>Hvor mange er brugt?</label>
@@ -625,7 +654,8 @@ function openItem(id,keepN){
     <div class="field"><label>Kategori</label><div class="chips" style="margin-top:0">${catChips(it.category,'itemPick')}</div>${newCatBox()}</div>
     <div class="field"><label>Genbestilling</label>
       <div class="seg"><button class="${whole?'':'on'}" onclick="act('editItem',{itemId:'${E}',mode:'unit'});openItem('${E}',true)">For hver enhed</button><button class="${whole?'on':''}" onclick="act('editItem',{itemId:'${E}',mode:'whole'});openItem('${E}',true)">Når alle er brugt</button></div></div>
-    <button class="linkbtn" onclick="listOnly('${E}')">Sæt på indkøbslisten uden at bruge noget</button>`);
+    <button class="linkbtn" onclick="listOnly('${E}')">Sæt på indkøbslisten uden at bruge noget</button>
+    <button class="linkbtn" id="delbtn" style="color:var(--bad)" onclick="delItem('${E}',this)">Slet varen</button>`);
 }
 let curItem=null;
 function itemPick(i){const it=S.items.find(x=>x.id===curItem);if(!it)return;const c=S.categories[i];act('editItem',{itemId:curItem,category:it.category===c?null:c});openItem(curItem,true)}
@@ -638,6 +668,36 @@ function useUp(id,reorder){
   if(reorder)toast(name+' er sat på indkøbslisten',(left>0?left+' '+unit+' tilbage · ':'')+uname(other())+' får en notifikation');
   else if(last)toast(name+' er registreret som opbrugt',uname(other())+' får en notifikation');
   else toast(n+' '+unit+' '+name.toLowerCase()+' er brugt',left+' '+unit+' tilbage i køleskabet');
+}
+/* slet uden at registrere noget – kræver to tryk, så man ikke sletter ved et uheld */
+function delItem(id,btn){
+  if(!btn.dataset.sure){btn.dataset.sure='1';btn.textContent='Tryk igen for at slette';setTimeout(()=>{if(btn.isConnected){delete btn.dataset.sure;btn.textContent='Slet varen'}},3500);return}
+  const it=S.items.find(i=>i.id===id);if(!it)return;
+  act('deleteItem',{itemId:id});closeSheet();toast(it.name+' er slettet','Ingen registrering og ingen notifikation');
+}
+function discard(id){
+  const it=S.items.find(i=>i.id===id);if(!it)return;
+  const n=Math.min(used,it.qty), last=n>=it.qty, name=it.name, left=it.qty-n, unit=it.unit;
+  act('discard',{itemId:id,n});closeSheet();
+  toast((last?name:n+' '+unit+' '+name.toLowerCase())+' er registreret som smidt ud',last?uname(other())+' får en notifikation':left+' '+unit+' tilbage i køleskabet');
+}
+/* ---------- kasserede varer ---------- */
+function openWaste(){
+  const W=S.waste||[];
+  const since=Date.now()-30*864e5, last30=W.filter(w=>w.at>=since);
+  const units=last30.reduce((a,w)=>a+w.qty,0);
+  const counts={};W.forEach(w=>{const k=w.name;counts[k]=(counts[k]||0)+1});
+  const top=Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,3).filter(x=>x[1]>1);
+  const months={};W.forEach(w=>{const d=new Date(w.at),k=d.getFullYear()+'-'+d.getMonth();(months[k]=months[k]||{label:['Januar','Februar','Marts','April','Maj','Juni','Juli','August','September','Oktober','November','December'][d.getMonth()]+' '+d.getFullYear(),list:[]}).list.push(w)});
+  const why=w=>{if(!w.expiry)return '';const d=Math.round((new Date(iso(new Date(w.at))).getTime()-new Date(w.expiry).getTime())/864e5);
+    return d>0?' · '+d+(d===1?' dag':' dage')+' over datoen':d===0?' · på udløbsdagen':' · før udløbsdatoen'};
+  openSheet(`<h2>Kasserede varer</h2><div class="meta">${W.length?'Alt hvad I har registreret som smidt ud':'Intet smidt ud endnu'}</div>
+    ${W.length?`<div class="list" style="margin-bottom:6px"><div class="kv"><span>Sidste 30 dage</span><span>${last30.length} ${last30.length===1?'gang':'gange'} · ${units} enheder</span></div>
+      <div class="kv"><span>I alt</span><span>${W.length} ${W.length===1?'gang':'gange'}</span></div>
+      ${top.length?`<div class="kv"><span>Oftest smidt ud</span><span>${top.map(([n,c])=>esc(n)+' ('+c+')').join(', ')}</span></div>`:''}</div>`:'<div class="empty">Når I trykker <b style="display:inline;font-size:inherit">Smidt ud</b> på en vare, dukker den op her.</div>'}
+    ${Object.values(months).map(m=>`<div class="section-title">${m.label}</div><div class="list">${m.list.map(w=>`<div class="row">
+      <span class="grow"><div class="name">${esc(w.name)}</div><div class="meta">${w.qty} ${esc(w.unit)} · ${esc(uname(w.by))}, ${fmtDate(iso(new Date(w.at)))}${why(w)}</div></span>
+      <button class="x" onclick="act('removeWaste',{wasteId:'${esc(w.id)}'});openWaste()" aria-label="Slet registrering">×</button></div>`).join('')}</div>`).join('')}`);
 }
 function listOnly(id){
   const it=S.items.find(i=>i.id===id);if(!it)return;
@@ -740,6 +800,8 @@ function renderUs(){
     ${st==='off'||st==='granted'?'<button class="btn primary" style="margin-top:10px" onclick="enablePush()">Slå notifikationer til</button>':''}
     ${st==='on'?'<button class="btn soft" style="margin-top:10px" onclick="testPush()">Send en test til mig selv</button>':''}
     <div class="note">Du får besked, når ${esc(uname(other()))} bruger en vare op, sætter noget på listen eller tager indkøbet. I får begge en besked om morgenen, hvis noget udløber i dag eller i morgen.</div>
+    <div class="section-title">Historik</div>
+    <div class="list"><button class="row" onclick="openWaste()"><span class="grow"><div class="name">Kasserede varer</div><div class="meta">${(S.waste||[]).length?(S.waste||[]).length+' registreringer':'Intet smidt ud endnu'}</div></span><span class="chip">Se liste ›</span></button></div>
     <div class="section-title">Kategorier i køleskabet</div>
     <div class="list">${(S.categories||[]).map((c,i,a)=>`<div class="catrow"><span class="grow">${esc(c)}</span>
       <button onclick="act('moveCategory',{name:S.categories[${i}],dir:-1})" ${i===0?'disabled':''} aria-label="Flyt op">↑</button>
