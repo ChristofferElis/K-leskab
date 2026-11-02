@@ -1,0 +1,707 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Køleskabet">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#f6f3ee">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" type="image/png" href="icon-192.png">
+<title>Køleskabet</title>
+<style>
+:root{
+  --bg:#f6f3ee;--card:#fff;--ink:#1d2621;--muted:#717b75;--line:#e8e3da;
+  --accent:#2f6b4f;--accent-ink:#fff;--accent-soft:#e2efe7;
+  --warn:#a5650f;--warn-soft:#fbefd9;--bad:#b23b3b;--bad-soft:#f9e2df;
+  --r:18px;--shadow:0 1px 2px rgba(30,40,35,.06),0 4px 14px rgba(30,40,35,.05);
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.4 -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,sans-serif}
+body{padding-bottom:calc(90px + env(safe-area-inset-bottom))}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer;border:0;background:none;padding:0}
+header{position:sticky;top:0;z-index:5;background:rgba(246,243,238,.9);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  padding:calc(16px + env(safe-area-inset-top)) 20px 12px}
+.hwrap{max-width:640px;margin:0 auto}
+h1{font-size:32px;letter-spacing:-.025em;margin:0;font-weight:750}
+.sub{color:var(--muted);font-size:14.5px;margin-top:2px}
+main{padding:4px 16px 24px;max-width:640px;margin:0 auto}
+.section-title{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:22px 4px 8px;font-weight:600}
+
+.list{background:var(--card);border-radius:var(--r);box-shadow:var(--shadow);overflow:hidden}
+.row{display:flex;align-items:center;gap:12px;padding:14px 16px;border-bottom:1px solid var(--line);width:100%;text-align:left}
+.row:last-child{border-bottom:0}
+.row:active{background:#faf8f4}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--accent);flex:none}
+.dot.warn{background:#e0a23a}.dot.bad{background:var(--bad)}.dot.none{background:#cfd5d1}
+.grow{flex:1;min-width:0}
+.name{font-weight:600;font-size:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.meta{color:var(--muted);font-size:14px}
+.chip{font-size:13px;padding:4px 9px;border-radius:999px;background:#f1eee8;color:var(--muted);white-space:nowrap;font-weight:500}
+.chip.warn{background:var(--warn-soft);color:var(--warn)}
+.chip.bad{background:var(--bad-soft);color:var(--bad)}
+.chip.ok{background:var(--accent-soft);color:var(--accent)}
+
+.empty{text-align:center;color:var(--muted);padding:40px 20px}
+.empty b{display:block;color:var(--ink);font-size:18px;margin-bottom:4px}
+
+.fab{position:fixed;right:20px;bottom:calc(92px + env(safe-area-inset-bottom));width:60px;height:60px;border-radius:50%;
+  background:var(--accent);color:#fff;font-size:32px;line-height:1;box-shadow:0 8px 22px rgba(47,107,79,.35);display:grid;place-items:center;z-index:6}
+
+nav{position:fixed;left:0;right:0;bottom:0;z-index:7;background:rgba(255,255,255,.94);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  border-top:1px solid var(--line);display:flex;justify-content:space-around;padding:8px 8px calc(8px + env(safe-area-inset-bottom))}
+nav button{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;font-size:11.5px;color:var(--muted);font-weight:600;position:relative;padding:4px 0}
+nav button.on{color:var(--accent)}
+nav svg{width:26px;height:26px}
+.badge{position:absolute;top:0;left:calc(50% + 6px);background:var(--bad);color:#fff;font-size:11px;min-width:19px;height:19px;border-radius:10px;display:grid;place-items:center;padding:0 5px}
+
+.btn{display:block;width:100%;padding:15px 16px;border-radius:14px;font-weight:650;font-size:16.5px;background:#efece6;text-align:center}
+.btn.primary{background:var(--accent);color:var(--accent-ink)}
+.btn.soft{background:var(--accent-soft);color:var(--accent)}
+.btn.danger{background:var(--bad-soft);color:var(--bad)}
+.btn+.btn{margin-top:10px}
+.linkbtn{display:block;width:100%;text-align:center;color:var(--accent);font-weight:600;padding:14px 0 4px;font-size:15px}
+
+.banner{border-radius:var(--r);padding:16px;display:flex;gap:12px;align-items:center;box-shadow:var(--shadow);background:var(--card);margin-top:6px}
+.banner.me{background:var(--accent);color:#fff}
+.banner.other{background:var(--warn-soft)}
+.banner .grow b{display:block;font-size:16.5px}
+.banner .grow span{font-size:14px;opacity:.85}
+.banner .small{font-size:14px;font-weight:650;padding:9px 13px;border-radius:11px;background:rgba(255,255,255,.22);white-space:nowrap}
+.banner.other .small,.banner.none .small{background:var(--accent);color:#fff}
+.avatar{width:40px;height:40px;border-radius:50%;display:grid;place-items:center;font-weight:700;background:var(--accent-soft);color:var(--accent);flex:none}
+.banner.me .avatar{background:rgba(255,255,255,.2);color:#fff}
+
+.check{width:28px;height:28px;border-radius:50%;border:2px solid #c9cfcb;flex:none;display:grid;place-items:center}
+.check.on{background:var(--accent);border-color:var(--accent)}
+.check.on::after{content:"";width:7px;height:12px;border:solid #fff;border-width:0 2.5px 2.5px 0;transform:rotate(45deg) translate(-1px,-1px)}
+.row.done .name{text-decoration:line-through;color:var(--muted)}
+.x{color:#b5bcb8;font-size:22px;padding:4px 6px}
+
+.addbar{display:flex;gap:8px;margin-top:14px}
+.addbar input{flex:1;padding:13px 14px;border-radius:14px;border:1px solid var(--line);background:#fff;font-size:16px;outline:none}
+.addbar input:focus{border-color:var(--accent)}
+.addbar button{padding:0 18px;border-radius:14px;background:var(--accent);color:#fff;font-weight:650}
+
+.feed{font-size:14px;color:var(--muted)}
+.feed div{padding:9px 16px;border-bottom:1px solid var(--line)}
+.feed div:last-child{border-bottom:0}
+.feed b{color:var(--ink);font-weight:600}
+.feed time{float:right;font-size:12.5px}
+
+/* sheet */
+.backdrop{position:fixed;inset:0;background:rgba(20,28,24,.35);opacity:0;pointer-events:none;transition:opacity .2s;z-index:20}
+.backdrop.on{opacity:1;pointer-events:auto}
+.sheet{position:fixed;left:0;right:0;bottom:0;z-index:21;background:var(--bg);border-radius:24px 24px 0 0;max-width:640px;margin:0 auto;
+  padding:10px 20px calc(22px + env(safe-area-inset-bottom));transform:translateY(105%);transition:transform .25s cubic-bezier(.2,.8,.2,1);max-height:92vh;overflow:auto}
+.sheet.on{transform:none}
+.grab{width:40px;height:5px;border-radius:3px;background:#d6d1c8;margin:0 auto 14px}
+.sheet h2{margin:0 0 2px;font-size:24px;letter-spacing:-.02em}
+.sheet .meta{margin-bottom:16px}
+.field{margin:14px 0}
+.field label{display:block;font-size:13px;font-weight:600;color:var(--muted);margin:0 0 6px 2px;text-transform:uppercase;letter-spacing:.05em}
+.field input,.field select{width:100%;padding:13px 14px;border-radius:14px;border:1px solid var(--line);background:#fff;font-size:17px;outline:none;-webkit-appearance:none;appearance:none}
+.field input:focus{border-color:var(--accent)}
+.stepper{display:flex;align-items:center;background:#fff;border:1px solid var(--line);border-radius:14px;overflow:hidden}
+.stepper button{width:56px;height:52px;font-size:26px;color:var(--accent);font-weight:500}
+.stepper span{flex:1;white-space:nowrap;text-align:center;font-weight:650;font-size:18px}
+.two{display:flex;gap:10px}.two>*{flex:1}
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.chips button{padding:8px 12px;border-radius:999px;background:#fff;border:1px solid var(--line);font-size:14px;font-weight:550}
+.chips button.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.note{font-size:13.5px;color:var(--muted);background:#efece6;border-radius:12px;padding:12px 14px;margin-top:14px}
+
+.toast{position:fixed;left:16px;right:16px;bottom:calc(100px + env(safe-area-inset-bottom));max-width:520px;margin:0 auto;z-index:30;
+  background:#1d2621;color:#fff;border-radius:14px;padding:13px 16px;font-size:15px;box-shadow:0 10px 30px rgba(0,0,0,.25);
+  transform:translateY(20px);opacity:0;transition:all .25s;pointer-events:none}
+.toast.on{transform:none;opacity:1}
+.toast small{display:block;opacity:.7;font-size:13px;margin-top:2px}
+</style>
+<style>
+.gate{padding:calc(40px + env(safe-area-inset-top)) 24px 40px;max-width:520px;margin:0 auto}
+.gate h1{font-size:30px}
+.gate p{color:var(--muted);font-size:16px;line-height:1.5}
+.gate .logo{width:72px;height:72px;border-radius:18px;margin-bottom:18px;box-shadow:var(--shadow)}
+.steps{counter-reset:s;list-style:none;padding:0;margin:22px 0}
+.steps li{counter-increment:s;background:#fff;border-radius:14px;padding:14px 14px 14px 54px;position:relative;margin-bottom:10px;box-shadow:var(--shadow);line-height:1.4}
+.steps li::before{content:counter(s);position:absolute;left:14px;top:12px;width:28px;height:28px;border-radius:50%;background:var(--accent-soft);color:var(--accent);font-weight:700;display:grid;place-items:center}
+.err{background:var(--bad-soft);color:var(--bad);border-radius:12px;padding:12px 14px;font-size:14.5px;margin-top:12px}
+.seg{display:flex;background:#e9e5de;border-radius:14px;padding:4px;gap:4px}
+.seg button{flex:1;padding:12px;border-radius:11px;font-weight:650;color:var(--muted)}
+.seg button.on{background:#fff;color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.pushcard{background:var(--accent-soft);border-radius:var(--r);padding:16px;margin:6px 0 14px;display:flex;gap:12px;align-items:center}
+.pushcard b{display:block}.pushcard span{font-size:14px;color:var(--muted)}
+.pushcard .small{font-size:14px;font-weight:650;padding:9px 13px;border-radius:11px;background:var(--accent);color:#fff;white-space:nowrap}
+.pushcard .close{color:var(--muted);font-size:22px;padding:0 4px}
+.sync{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--warn);background:var(--warn-soft);border-radius:999px;padding:3px 10px;margin-left:6px;vertical-align:1px}
+.kv{display:flex;justify-content:space-between;gap:12px;padding:13px 16px;border-bottom:1px solid var(--line);font-size:15px}
+.kv:last-child{border-bottom:0}.kv span:last-child{color:var(--muted);text-align:right;word-break:break-all}
+.newchip{font-size:13px;padding:4px 9px;border-radius:999px;background:var(--accent-soft);color:var(--accent);font-weight:600;white-space:nowrap}
+</style>
+</head>
+<body>
+
+<header id="hdr"><div class="hwrap"><h1 id="title">Køleskabet</h1><div class="sub" id="subtitle"></div></div></header>
+<main id="main"></main>
+<button class="fab" id="fab" onclick="openAdd()" aria-label="Tilføj vare">+</button>
+
+<nav id="nav">
+  <button id="t-fridge" onclick="go('fridge')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="5" y="2.5" width="14" height="19" rx="2.5"/><path d="M5 9.5h14M8.5 5.5v2M8.5 12.5v3"/></svg>
+    Køleskab</button>
+  <button id="t-shop" onclick="go('shop')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4h2.2l2.3 11h10.8l2-8H6.3"/><circle cx="9.5" cy="19.5" r="1.4"/><circle cx="17" cy="19.5" r="1.4"/></svg>
+    Indkøb<span class="badge" id="badge" hidden></span></button>
+  <button id="t-us" onclick="go('us')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="9" cy="8" r="3.2"/><path d="M3 19c.6-3.2 3-5 6-5s5.4 1.8 6 5"/><circle cx="17" cy="9" r="2.5"/><path d="M16.5 14c2.4.2 4 1.7 4.5 4.5"/></svg>
+    Os to</button>
+</nav>
+
+<div class="backdrop" id="backdrop" onclick="closeSheet()"></div>
+<div class="sheet" id="sheet"></div>
+<div class="toast" id="toast"></div>
+
+<script>
+/* Valgfrit: skriv jeres server-adresse her, så den er udfyldt på forhånd ved opsætning.
+   Eksempel: var KOLESKAB_API = 'https://koleskab.ditnavn.workers.dev'; */
+var KOLESKAB_API = '';
+var KOLESKAB_DEMO = false;
+</script>
+<script>
+/* ===== FÆLLES LOGIK – bruges både i appen og på serveren ===== */
+/* Varer der som udgangspunkt først genbestilles, når den sidste enhed er brugt */
+var WHOLE_DEFAULT=['æg'];
+function emptyState(){
+  return {users:['',''],items:[],shopping:[],shopper:null,activity:[],known:[],prefs:{},seen:[],version:0};
+}
+/* 'unit' = genbestil pr. enhed (fx mælk) · 'whole' = genbestil når alt er brugt (fx æg) */
+function modeOf(S,itemOrName){
+  var name=typeof itemOrName==='string'?itemOrName:itemOrName.name;
+  if(typeof itemOrName!=='string'&&itemOrName.mode)return itemOrName.mode;
+  var p=S.prefs&&S.prefs[String(name).trim().toLowerCase()];
+  if(p&&p.mode)return p.mode;
+  return WHOLE_DEFAULT.indexOf(String(name).trim().toLowerCase())>=0?'whole':'unit';
+}
+/* Anvender en handling på tilstanden. Returnerer de notifikationer, der skal sendes.
+   to: 'other' = kun den anden person, 'all' = begge. */
+function reduce(S,a){
+  if(!a||!a.type)return [];
+  S.seen=S.seen||[];S.prefs=S.prefs||{};
+  if(a.id){
+    if(S.seen.indexOf(a.id)>=0)return [];
+    S.seen.push(a.id);
+    if(S.seen.length>300)S.seen.splice(0,S.seen.length-300);
+  }
+  var by=a.by===1?1:0, at=a.at||Date.now(), out=[];
+  var nm=function(i){return (S.users[i]||'').trim()||('Person '+(i+1))};
+  var key=function(n){return String(n).trim().toLowerCase()};
+  var same=function(x,y){return key(x)===key(y)};
+  var clean=function(s){s=String(s||'').trim().slice(0,60);return s.charAt(0).toUpperCase()+s.slice(1)};
+  var log=function(text){S.activity.unshift({who:by,text:text,at:at});if(S.activity.length>30)S.activity.length=30};
+  var remember=function(n){if(!S.known.some(function(k){return same(k,n)}))S.known.push(n);if(S.known.length>300)S.known.shift()};
+  var openCount=function(){return S.shopping.filter(function(s){return !s.done}).length};
+  var toShop=function(name,qty,unit){
+    var ex=S.shopping.find(function(s){return !s.done&&same(s.name,name)});
+    if(ex){ex.qty+=qty;return}
+    S.shopping.push({id:(a.id||String(at))+'s',name:name,qty:qty,unit:unit||'stk',by:by,at:at,done:false});
+  };
+  /* genbestil en vare efter dens regel: hele pakker som "1 pakke", ellers n enheder */
+  var reorder=function(name,n,unit){
+    if(modeOf(S,name)==='whole')toShop(name,1,'pakke');else toShop(name,n,unit);
+  };
+  var listMsg=function(name,left){
+    var n=openCount();
+    var extra=left>0?' · '+left+' tilbage i køleskabet':' · '+n+(n===1?' vare':' varer')+' på listen';
+    return {to:'other',title:name+' er sat på indkøbslisten',body:'Tilføjet af '+nm(by)+extra,tag:'list'};
+  };
+  var findItem=function(id){return S.items.find(function(i){return i.id===id})};
+  var setPref=function(name,patch){var k=key(name),p=S.prefs[k]||{};for(var x in patch)p[x]=patch[x];S.prefs[k]=p};
+
+  switch(a.type){
+    case 'setUsers':
+      S.users=[clean(a.users&&a.users[0]),clean(a.users&&a.users[1])];
+      break;
+    case 'addItem':{
+      var it=a.item||{}, name=clean(it.name);if(!name)break;
+      var qty=Math.max(1,Math.min(999,+it.qty||1)), unit=it.unit||'stk', exp=it.expiry||null;
+      var mode=it.mode==='whole'||it.mode==='unit'?it.mode:modeOf(S,name);
+      var ex=S.items.find(function(i){return same(i.name,name)&&i.expiry===exp&&i.unit===unit});
+      if(ex){ex.qty+=qty;ex.mode=mode}else S.items.push({id:it.id||a.id,name:name,qty:qty,unit:unit,expiry:exp,mode:mode});
+      setPref(name,mode==='whole'?{mode:mode,pack:qty,unit:unit}:{mode:mode});
+      remember(name);
+      break;}
+    case 'editItem':{
+      var e=findItem(a.itemId);if(!e)break;
+      if(a.qty!=null)e.qty=Math.max(1,Math.min(999,+a.qty||1));
+      if('expiry' in a)e.expiry=a.expiry||null;
+      if(a.mode==='whole'||a.mode==='unit'){e.mode=a.mode;setPref(e.name,a.mode==='whole'?{mode:'whole',pack:e.qty,unit:e.unit}:{mode:'unit'})}
+      break;}
+    case 'useUp':{
+      var u=findItem(a.itemId);if(!u)break;
+      var n=a.n==null?u.qty:Math.max(1,Math.min(u.qty,+a.n||1));
+      var whole=modeOf(S,u)==='whole', last=n>=u.qty;
+      u.qty-=n;
+      if(u.qty<=0)S.items=S.items.filter(function(i){return i!==u});
+      var what=last?u.name.toLowerCase():n+' '+u.unit+' '+u.name.toLowerCase();
+      if(a.reorder&&(!whole||last)){
+        reorder(u.name,n,u.unit);
+        log(last?'brugte '+what+' op og satte den på listen':'brugte '+what+' og satte '+u.name.toLowerCase()+' på listen');
+        out.push(listMsg(u.name,Math.max(0,u.qty)));
+      }else if(last){
+        log('brugte '+u.name.toLowerCase()+' op');
+        out.push({to:'other',title:u.name+' er opbrugt',body:'Registreret af '+nm(by),tag:'used'});
+      }else{
+        log('brugte '+what+' · '+u.qty+' tilbage');
+      }
+      break;}
+    case 'listOnly':{
+      var l=findItem(a.itemId);if(!l)break;
+      reorder(l.name,1,l.unit);
+      log('satte '+l.name.toLowerCase()+' på listen');
+      out.push(listMsg(l.name,l.qty));
+      break;}
+    case 'shopAdd':{
+      var sn=clean(a.name);if(!sn)break;
+      reorder(sn,1,'stk');remember(sn);
+      log('satte '+sn.toLowerCase()+' på listen');
+      out.push(listMsg(sn,0));
+      break;}
+    case 'shopToggle':{
+      var t=S.shopping.find(function(s){return s.id===a.shopId});if(t)t.done=!t.done;
+      break;}
+    case 'shopRemove':
+      S.shopping=S.shopping.filter(function(s){return s.id!==a.shopId});
+      break;
+    case 'claim':{
+      S.shopper={who:by,at:at};
+      log('står for indkøbet');
+      var c=openCount();
+      out.push({to:'other',title:nm(by)+' står for indkøbet',body:c?c+(c===1?' vare':' varer')+' på listen':'Listen er tom lige nu',tag:'shopper'});
+      break;}
+    case 'unclaim':
+      if(S.shopper&&S.shopper.who===by){S.shopper=null;log('droppede indkøbet')}
+      break;
+    case 'finish':{
+      var done=S.shopping.filter(function(s){return s.done});if(!done.length)break;
+      done.forEach(function(s){
+        var p=S.prefs[key(s.name)]||{}, md=modeOf(S,s.name), q=s.qty, un=s.unit;
+        if(s.unit==='pakke'&&md==='whole'){q=s.qty*(p.pack||1);un=p.unit||'stk'}
+        S.items.push({id:s.id+'f',name:s.name,qty:q,unit:un,expiry:null,mode:md});
+      });
+      S.shopping=S.shopping.filter(function(s){return !s.done});
+      if(S.shopper&&!openCount())S.shopper=null;
+      log('lagde '+done.length+(done.length===1?' vare':' varer')+' i køleskabet');
+      break;}
+    default:return [];
+  }
+  S.version=(S.version||0)+1;
+  return out;
+}
+/* ===== SLUT PÅ FÆLLES LOGIK ===== */
+
+
+/* ---------- hjælpere ---------- */
+const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,8);
+const iso=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+const today=()=>iso(new Date());
+const addDays=n=>{const d=new Date();d.setDate(d.getDate()+n);return iso(d)};
+const daysUntil=s=>{const[y,m,d]=s.split('-').map(Number);const n=new Date();n.setHours(0,0,0,0);return Math.round((new Date(y,m-1,d)-n)/864e5)};
+const MON=['jan','feb','mar','apr','maj','jun','jul','aug','sep','okt','nov','dec'];
+const fmtDate=s=>{const[,m,d]=s.split('-').map(Number);return d+'. '+MON[m-1]};
+const hhmm=ts=>{const d=new Date(ts);return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')};
+const when=ts=>iso(new Date(ts))===today()?'kl. '+hhmm(ts):fmtDate(iso(new Date(ts)));
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const $=id=>document.getElementById(id);
+const LS={get(k,d){try{const v=localStorage.getItem(k);return v==null?d:JSON.parse(v)}catch(e){return d}},
+          set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}},
+          del(k){try{localStorage.removeItem(k)}catch(e){}}};
+const b64uDec=s=>{s=s.replace(/-/g,'+').replace(/_/g,'/');while(s.length%4)s+='=';const r=atob(s);return Uint8Array.from(r,c=>c.charCodeAt(0))};
+
+const isIOS=/iPhone|iPad|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
+const standalone=window.navigator.standalone===true||matchMedia('(display-mode: standalone)').matches;
+const pushSupported='serviceWorker' in navigator&&'PushManager' in window&&'Notification' in window;
+
+/* ---------- tilstand ---------- */
+let cfg=KOLESKAB_DEMO?{api:'demo',key:'demo'}:LS.get('kb-cfg',{api:'',key:''});
+let meIdx=LS.get('kb-me',null);
+let S=LS.get('kb-state',null);
+let vapidKey=LS.get('kb-vapid',null);
+let pending=LS.get('kb-pending',[]);
+let online=true, tab='fridge', gateErr='', busy=false;
+
+const me=()=>meIdx===1?1:0;
+const other=()=>1-me();
+const uname=i=>(S&&S.users[i]||'').trim()||('Person '+(i+1));
+const initial=i=>uname(i).charAt(0).toUpperCase();
+const same=(a,b)=>String(a).trim().toLowerCase()===String(b).trim().toLowerCase();
+const persist=()=>{LS.set('kb-state',S);LS.set('kb-pending',pending)};
+
+/* ---------- server ---------- */
+/* demo: en lille "server" i browseren, så appen kan prøves uden opsætning */
+let demoSrv=null;
+function demoApi(path,body){
+  if(!demoSrv)demoSrv=LS.get('kb-demo-srv',null)||demoSeed();
+  if(path==='/api/action'){const msgs=reduce(demoSrv,body.action);LS.set('kb-demo-srv',demoSrv);
+    setTimeout(()=>msgs.forEach(m=>{if(m.to!=='other')return;toast('🔔 Til '+uname(other())+': '+m.title,m.body)}),900)}
+  return JSON.parse(JSON.stringify({state:demoSrv,vapid:null}));
+}
+function demoSeed(){
+  const S0=emptyState(),now=Date.now();
+  [['Mælk',2,'stk',3,'unit'],['Æg',6,'stk',12,'whole'],['Smør',1,'stk',21,'unit'],['Yoghurt',1,'stk',1,'unit'],['Hakket oksekød',1,'pk',0,'unit'],['Agurk',1,'stk',-1,'unit'],['Skiveost',1,'pk',14,'unit'],['Juice',1,'l',null,'unit']]
+    .forEach(([name,qty,unit,d,mode],i)=>reduce(S0,{type:'addItem',id:'d'+i,at:now,by:0,item:{id:'d'+i,name,qty,unit,expiry:d==null?null:addDays(d),mode}}));
+  S0.activity=[];return S0;
+}
+function demoReset(){LS.del('kb-demo-srv');LS.del('kb-state');LS.del('kb-pending');LS.del('kb-me');demoSrv=null;S=null;pending=[];meIdx=null;tab='fridge';boot()}
+async function api(path,body){
+  if(cfg.api==='demo')return demoApi(path,body);
+  const r=await fetch(cfg.api.replace(/\/+$/,'')+path,{method:body?'POST':'GET',headers:{'x-key':cfg.key,'content-type':'application/json'},body:body?JSON.stringify(body):undefined,cache:'no-store'});
+  let d={};try{d=await r.json()}catch(e){}
+  if(!r.ok){const e=new Error(d.error||('Serverfejl '+r.status));e.status=r.status;throw e}
+  return d;
+}
+function setOnline(v){if(online!==v){online=v;renderSafe()}}
+
+function act(type,payload){
+  const a=Object.assign({type,id:uid(),by:me(),at:Date.now()},payload||{});
+  reduce(S,a);pending.push(a);persist();render();flush();
+}
+let flushing=false;
+async function flush(){
+  if(flushing||!pending.length||!cfg.api)return;
+  flushing=true;let srv=null;
+  try{
+    while(pending.length){const r=await api('/api/action',{action:pending[0]});srv=r.state;pending.shift();LS.set('kb-pending',pending)}
+    setOnline(true);
+  }catch(e){setOnline(false);if(e.status===401){gateErr='Husstandskoden passer ikke længere. Indtast den igen.';cfg.key='';LS.set('kb-cfg',cfg);render()}}
+  flushing=false;
+  if(srv){S=srv;pending.forEach(a=>reduce(S,a));persist();renderSafe()}
+}
+async function refresh(){
+  if(!cfg.api||!cfg.key)return;
+  if(pending.length)return flush();
+  try{
+    const r=await api('/api/state');
+    if(r.vapid&&r.vapid!==vapidKey){vapidKey=r.vapid;LS.set('kb-vapid',vapidKey)}
+    setOnline(true);
+    if(!pending.length&&(!S||r.state.version!==S.version)){S=r.state;persist();renderSafe()}
+  }catch(e){setOnline(false)}
+}
+/* undgå at tegne siden om, mens man skriver i et felt */
+function renderSafe(){const a=document.activeElement;if(a&&a.tagName==='INPUT'&&$('main').contains(a))return;render()}
+
+/* ---------- toast & sheet ---------- */
+let tt;
+function toast(msg,small){const t=$('toast');t.innerHTML=esc(msg)+(small?'<small>'+esc(small)+'</small>':'');t.classList.add('on');clearTimeout(tt);tt=setTimeout(()=>t.classList.remove('on'),3000)}
+function openSheet(html){$('toast').classList.remove('on');const s=$('sheet');const keep=s.classList.contains('on')?s.scrollTop:0;s.innerHTML='<div class="grab"></div>'+html;s.scrollTop=keep;s.classList.add('on');$('backdrop').classList.add('on')}
+function closeSheet(){$('sheet').classList.remove('on');$('backdrop').classList.remove('on')}
+
+/* ---------- udløb ---------- */
+function status(it){
+  if(!it.expiry)return{cls:'none',chip:'',label:'Ingen dato'};
+  const d=daysUntil(it.expiry);
+  if(d<0)return{cls:'bad',chip:'bad',label:d===-1?'Udløb i går':'Udløbet '+fmtDate(it.expiry)};
+  if(d===0)return{cls:'bad',chip:'bad',label:'Udløber i dag'};
+  if(d===1)return{cls:'warn',chip:'warn',label:'Udløber i morgen'};
+  if(d<=3)return{cls:'warn',chip:'warn',label:'Om '+d+' dage'};
+  return{cls:'',chip:'',label:fmtDate(it.expiry)};
+}
+const sortItems=a=>a.slice().sort((x,y)=>{
+  if(!x.expiry&&!y.expiry)return x.name.localeCompare(y.name,'da');
+  if(!x.expiry)return 1;if(!y.expiry)return -1;
+  return x.expiry.localeCompare(y.expiry)||x.name.localeCompare(y.name,'da');
+});
+
+/* ---------- opstart / porte ---------- */
+function gate(){
+  if(!KOLESKAB_DEMO&&isIOS&&!standalone&&!LS.get('kb-skip-install',false))return 'install';
+  if(!cfg.api||!cfg.key)return 'setup';
+  if(!S)return 'loading';
+  if(!S.users[0]||!S.users[1])return 'names';
+  if(meIdx!==0&&meIdx!==1)return 'who';
+  return null;
+}
+function showChrome(on){$('hdr').style.display=on?'':'none';$('nav').style.display=on?'':'none';$('fab').style.display='none';document.body.style.paddingBottom=on?'':'0'}
+const LOGO='<img class="logo" src="icon-180.png" alt="">';
+
+function renderGate(g){
+  showChrome(false);const m=$('main');
+  if(g==='install'){
+    m.innerHTML=`<div class="gate">${LOGO}<h1>Læg Køleskabet på hjemmeskærmen</h1>
+      <p>Så åbner den som en rigtig app, og I kan få notifikationer.</p>
+      <ol class="steps"><li>Tryk på <b>Del</b>-knappen (firkanten med pilen) nederst i Safari.</li>
+      <li>Rul ned og vælg <b>Føj til hjemmeskærm</b>.</li>
+      <li>Åbn <b>Køleskabet</b> fra hjemmeskærmen og fortsæt opsætningen der.</li></ol>
+      <button class="linkbtn" onclick="LS.set('kb-skip-install',true);render()">Fortsæt i browseren i stedet</button></div>`;
+  }else if(g==='setup'){
+    m.innerHTML=`<div class="gate">${LOGO}<h1>Forbind til jeres køleskab</h1>
+      <p>Indtast jeres server-adresse og husstandskode. Det skal kun gøres én gang på hver telefon.</p>
+      <form onsubmit="event.preventDefault();connect()">
+      <div class="field"><label>Server-adresse</label><input id="g-api" type="url" inputmode="url" autocapitalize="off" autocorrect="off" placeholder="https://koleskab.navn.workers.dev" value="${esc(cfg.api||KOLESKAB_API)}"></div>
+      <div class="field"><label>Husstandskode</label><input id="g-key" autocapitalize="off" autocorrect="off" autocomplete="off" placeholder="Jeres fælles kode"></div>
+      ${gateErr?`<div class="err">${esc(gateErr)}</div>`:''}
+      <button class="btn primary" style="margin-top:18px" ${busy?'disabled':''}>${busy?'Forbinder…':'Forbind'}</button></form></div>`;
+  }else if(g==='loading'){
+    m.innerHTML=`<div class="gate">${LOGO}<h1>Henter køleskabet…</h1>${gateErr?`<div class="err">${esc(gateErr)}</div><button class="btn" style="margin-top:14px" onclick="gateErr='';boot()">Prøv igen</button><button class="linkbtn" onclick="resetConn()">Skift server</button>`:''}</div>`;
+  }else if(g==='names'){
+    m.innerHTML=`<div class="gate">${LOGO}<h1>Hvem bruger køleskabet?</h1><p>Navnene bruges på listen og i notifikationerne.</p>
+      <form onsubmit="event.preventDefault();saveNames()">
+      <div class="field"><label>Person 1</label><input id="n0" placeholder="Fx Christoffer" autocomplete="off"></div>
+      <div class="field"><label>Person 2</label><input id="n1" placeholder="Navn" autocomplete="off"></div>
+      <button class="btn primary" style="margin-top:18px">Fortsæt</button></form></div>`;
+  }else if(g==='who'){
+    m.innerHTML=`<div class="gate">${LOGO}<h1>Hvis telefon er det her?</h1><p>Så ved appen, hvem der skal have notifikationerne.</p>
+      <button class="btn primary" onclick="setMe(0)">${esc(uname(0))}</button>
+      <button class="btn primary" onclick="setMe(1)">${esc(uname(1))}</button></div>`;
+  }
+}
+async function connect(){
+  const apiUrl=$('g-api').value.trim(), key=$('g-key').value.trim();
+  if(!/^https:\/\//.test(apiUrl)){gateErr='Adressen skal starte med https://';render();return}
+  if(!key){gateErr='Skriv husstandskoden.';render();return}
+  busy=true;gateErr='';cfg={api:apiUrl.replace(/\/+$/,''),key};render();
+  try{const r=await api('/api/state');S=r.state;vapidKey=r.vapid;LS.set('kb-vapid',vapidKey);LS.set('kb-cfg',cfg);persist()}
+  catch(e){gateErr=e.status===401?'Husstandskoden passer ikke.':(e.status?e.message:'Kunne ikke nå serveren. Tjek adressen.');cfg={api:apiUrl,key:''}}
+  busy=false;render();
+}
+function saveNames(){
+  const a=$('n0').value.trim(),b=$('n1').value.trim();
+  if(!a||!b){(a?$('n1'):$('n0')).focus();return}
+  act('setUsers',{users:[a,b]});
+}
+function setMe(i){
+  meIdx=i;LS.set('kb-me',i);render();
+  if(pushSupported&&Notification.permission==='granted')subscribe(true);
+}
+function resetConn(){cfg={api:cfg.api,key:''};LS.set('kb-cfg',cfg);S=null;pending=[];persist();LS.del('kb-state');gateErr='';render()}
+async function boot(){
+  if(cfg.api&&cfg.key&&!S){
+    try{const r=await api('/api/state');S=r.state;vapidKey=r.vapid;LS.set('kb-vapid',vapidKey);persist()}
+    catch(e){gateErr=e.status===401?'Husstandskoden passer ikke.':'Kunne ikke hente data. Har du net?';if(e.status===401){cfg.key='';LS.set('kb-cfg',cfg)}}
+  }
+  render();
+}
+
+/* ---------- notifikationer ---------- */
+function pushState(){
+  if(KOLESKAB_DEMO)return 'demo';
+  if(!pushSupported)return isIOS&&!standalone?'needs-install':'unsupported';
+  if(Notification.permission==='granted')return LS.get('kb-push-ok',false)?'on':'granted';
+  if(Notification.permission==='denied')return 'denied';
+  return 'off';
+}
+async function enablePush(){
+  if(!pushSupported){toast('Åbn appen fra hjemmeskærmen for at få notifikationer');return}
+  let p;
+  try{p=await Notification.requestPermission()}catch(e){p='denied'}
+  if(p!=='granted'){toast('Notifikationer blev ikke tilladt','Kan ændres i iPhonens Indstillinger → Notifikationer');render();return}
+  await subscribe(false);
+}
+async function subscribe(silent){
+  try{
+    if(!vapidKey){const r=await api('/api/state');vapidKey=r.vapid;LS.set('kb-vapid',vapidKey)}
+    const reg=await navigator.serviceWorker.ready;
+    let sub=await reg.pushManager.getSubscription();
+    if(!sub)sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:b64uDec(vapidKey)});
+    await api('/api/subscribe',{sub:sub.toJSON(),user:me()});
+    LS.set('kb-push-ok',true);
+    if(!silent)toast('Notifikationer er slået til',uname(other())+' får besked, når du ændrer noget');
+  }catch(e){LS.set('kb-push-ok',false);if(!silent)toast('Kunne ikke slå notifikationer til',e.message)}
+  renderSafe();
+}
+async function testPush(){
+  try{const r=await api('/api/test',{user:me()});const ok=(r.results||[]).some(x=>x.status>=200&&x.status<300);
+    toast(ok?'Test sendt – den kommer om et øjeblik':'Testen kunne ikke leveres',ok?'':'Prøv at slå notifikationer til igen')}
+  catch(e){toast('Test fejlede',e.message)}
+}
+
+/* ---------- tegning ---------- */
+function go(t){tab=t;render();window.scrollTo(0,0)}
+function render(){
+  const g=gate();
+  if(g){renderGate(g);return}
+  showChrome(true);
+  ['fridge','shop','us'].forEach(t=>$('t-'+t).classList.toggle('on',tab===t));
+  const open=S.shopping.filter(x=>!x.done).length,b=$('badge');
+  b.hidden=!open;b.textContent=open;
+  try{if(navigator.setAppBadge)open?navigator.setAppBadge(open):navigator.clearAppBadge()}catch(e){}
+  $('fab').style.display=tab==='fridge'?'grid':'none';
+  ({fridge:renderFridge,shop:renderShop,us:renderUs})[tab]();
+  if(!online||pending.length){$('subtitle').insertAdjacentHTML('beforeend',`<span class="sync">${online?'Gemmer…':'Offline · gemmes senere'}</span>`)}
+}
+
+function pushCard(){
+  const st=pushState();
+  if(st!=='off'||LS.get('kb-push-dismiss',false))return '';
+  return `<div class="pushcard"><div class="grow"><b>Slå notifikationer til</b><span>Få besked når ${esc(uname(other()))} sætter noget på listen</span></div>
+    <button class="small" onclick="enablePush()">Slå til</button><button class="close" onclick="LS.set('kb-push-dismiss',true);render()" aria-label="Luk">×</button></div>`;
+}
+
+/* ---------- køleskab ---------- */
+function renderFridge(){
+  $('title').textContent='Køleskabet';
+  const items=sortItems(S.items);
+  const soon=items.filter(i=>i.expiry&&daysUntil(i.expiry)<=3).length;
+  $('subtitle').textContent=items.length?(items.length+(items.length===1?' vare':' varer')+(soon?' · '+soon+' skal bruges snart':'')):'Tomt';
+  let h=pushCard();
+  if(!items.length)h+='<div class="empty"><b>Køleskabet er tomt</b>Tryk på + for at registrere en vare.</div>';
+  else h+='<div class="list" style="margin-top:6px">'+items.map(it=>{
+    const st=status(it);
+    return `<button class="row" onclick="openItem('${esc(it.id)}')">
+      <span class="dot ${st.cls}"></span>
+      <span class="grow"><div class="name">${esc(it.name)}</div><div class="meta">${it.qty} ${esc(it.unit)}</div></span>
+      <span class="${it.expiry?'chip '+st.chip:'newchip'}">${it.expiry?st.label:'Sæt dato'}</span></button>`}).join('')+'</div>';
+  $('main').innerHTML=h;
+}
+let used=1;
+function openItem(id,keepN){
+  const it=S.items.find(i=>i.id===id);if(!it)return;
+  if(!keepN)used=1;used=Math.min(used,it.qty);
+  const st=status(it), whole=modeOf(S,it)==='whole', all=used>=it.qty, many=it.qty>1;
+  const E=esc(id);
+  const lbl=all?'Opbrugt':'Brugt '+used+' '+esc(it.unit);
+  let buttons;
+  if(whole&&!all){
+    buttons=`<button class="btn primary" onclick="useUp('${E}',false)">${lbl}</button>
+      <div class="note" style="margin-top:10px">${esc(it.name)} kommer først på indkøbslisten, når den sidste er brugt.</div>`;
+  }else{
+    buttons=`<button class="btn primary" onclick="useUp('${E}',true)">${lbl} · Genbestil</button>
+      <button class="btn" onclick="useUp('${E}',false)">${lbl}</button>`;
+  }
+  openSheet(`<h2>${esc(it.name)}</h2><div class="meta">${it.qty} ${esc(it.unit)} i køleskabet · ${it.expiry?'holdbar til '+fmtDate(it.expiry)+(daysUntil(it.expiry)<=3?' ('+st.label.toLowerCase()+')':''):'ingen udløbsdato'}</div>
+    ${many?`<div class="field" style="margin-top:0"><label>Hvor mange er brugt?</label>
+      <div class="stepper"><button onclick="useN('${E}',-1)">−</button><span>${used} af ${it.qty} ${esc(it.unit)}</span><button onclick="useN('${E}',1)">+</button></div>
+      <div class="chips" style="justify-content:center"><button onclick="used=${it.qty};openItem('${E}',true)" class="${all?'on':''}">Alle ${it.qty}</button></div></div>`:''}
+    ${buttons}
+    <div class="section-title" style="margin-top:26px">Ret varen</div>
+    <div class="two">
+      <div class="field" style="margin:0"><label>Antal</label>
+        <div class="stepper"><button onclick="stepItem('${E}',-1)">−</button><span>${it.qty} ${esc(it.unit)}</span><button onclick="stepItem('${E}',1)">+</button></div></div>
+      <div class="field" style="margin:0"><label>Udløbsdato</label>
+        <input type="date" value="${esc(it.expiry||'')}" onchange="act('editItem',{itemId:'${E}',expiry:this.value||null});openItem('${E}',true)"></div>
+    </div>
+    <div class="chips" style="justify-content:center;margin-top:10px">${[[2,'+2 dage'],[4,'+4 dage'],[7,'+1 uge'],[14,'+2 uger']].map(([n,l])=>`<button onclick="act('editItem',{itemId:'${E}',expiry:addDays(${n})});openItem('${E}',true)">${l}</button>`).join('')}</div>
+    <div class="field"><label>Genbestilling</label>
+      <div class="seg"><button class="${whole?'':'on'}" onclick="act('editItem',{itemId:'${E}',mode:'unit'});openItem('${E}',true)">For hver enhed</button><button class="${whole?'on':''}" onclick="act('editItem',{itemId:'${E}',mode:'whole'});openItem('${E}',true)">Når alle er brugt</button></div></div>
+    <button class="linkbtn" onclick="listOnly('${E}')">Sæt på indkøbslisten uden at bruge noget</button>`);
+}
+function useN(id,d){const it=S.items.find(i=>i.id===id);if(!it)return;used=Math.max(1,Math.min(it.qty,used+d));openItem(id,true)}
+function stepItem(id,d){const it=S.items.find(i=>i.id===id);if(!it)return;act('editItem',{itemId:id,qty:Math.max(1,it.qty+d)});openItem(id,true)}
+function useUp(id,reorder){
+  const it=S.items.find(i=>i.id===id);if(!it)return;
+  const n=Math.min(used,it.qty), last=n>=it.qty, name=it.name, left=it.qty-n, unit=it.unit;
+  act('useUp',{itemId:id,n,reorder});closeSheet();
+  if(reorder)toast(name+' er sat på indkøbslisten',(left>0?left+' '+unit+' tilbage · ':'')+uname(other())+' får en notifikation');
+  else if(last)toast(name+' er registreret som opbrugt',uname(other())+' får en notifikation');
+  else toast(n+' '+unit+' '+name.toLowerCase()+' er brugt',left+' '+unit+' tilbage i køleskabet');
+}
+function listOnly(id){
+  const it=S.items.find(i=>i.id===id);if(!it)return;
+  act('listOnly',{itemId:id});closeSheet();toast(it.name+' er sat på indkøbslisten',uname(other())+' får en notifikation');
+}
+
+/* ---------- tilføj vare ---------- */
+const COMMON=['Mælk','Letmælk','Skummetmælk','Æg','Smør','Ost','Skiveost','Yoghurt','Skyr','Creme fraiche','Fløde','Juice','Agurk','Tomater','Peberfrugt','Salat','Gulerødder','Hakket oksekød','Kyllingebryst','Pålæg','Leverpostej','Spegepølse','Hummus','Pesto','Ketchup','Remoulade','Sennep','Mayonnaise','Citron','Æbler','Bær'];
+const nameList=()=>[...new Set([...(S.known||[]),...COMMON])];
+let draft;
+function openAdd(){
+  draft={qty:1,expiry:addDays(7),mode:null};
+  openSheet(`<h2>Ny vare</h2><div class="meta">Registrér hvad der er sat i køleskabet</div>
+    <div class="field"><label>Vare</label><input id="an" list="known" placeholder="Fx mælk" autocomplete="off" enterkeyhint="done" oninput="markMode()">
+      <datalist id="known">${nameList().map(n=>`<option value="${esc(n)}">`).join('')}</datalist></div>
+    <div class="two">
+      <div class="field" style="margin:0"><label>Antal</label><div class="stepper"><button onclick="dq(-1)">−</button><span id="aq">1</span><button onclick="dq(1)">+</button></div></div>
+      <div class="field" style="margin:0"><label>Enhed</label><select id="au">${['stk','pk','l','g','bakke','glas'].map(u=>`<option>${u}</option>`).join('')}</select></div>
+    </div>
+    <div class="field"><label>Udløbsdato</label><input type="date" id="ae" value="${draft.expiry}" onchange="draft.expiry=this.value||null;markQuick(null)">
+      <div class="chips" id="qc">${[[2,'2 dage'],[4,'4 dage'],[7,'1 uge'],[14,'2 uger'],[30,'1 måned'],[0,'Ingen']].map(([n,l])=>`<button data-n="${n}" onclick="quick(${n})">${l}</button>`).join('')}</div></div>
+    <div class="field"><label>Genbestilling</label><div class="seg" id="am"><button data-m="unit" onclick="draft.mode='unit';markMode()">For hver enhed</button><button data-m="whole" onclick="draft.mode='whole';markMode()">Når alle er brugt</button></div>
+      <div class="meta" style="margin:6px 2px 0;font-size:13px">Fx mælk: hver enhed · æg: når bakken er tom</div></div>
+    <button class="btn primary" style="margin-top:20px" onclick="saveAdd()">Læg i køleskabet</button>`);
+  markQuick(7);markMode();
+}
+function dq(d){draft.qty=Math.max(1,draft.qty+d);$('aq').textContent=draft.qty}
+function quick(n){draft.expiry=n?addDays(n):null;$('ae').value=draft.expiry||'';markQuick(n)}
+function markQuick(n){document.querySelectorAll('#qc button').forEach(b=>b.classList.toggle('on',n!==null&&+b.dataset.n===n))}
+function markMode(){const m=draft.mode||modeOf(S,($('an')||{}).value||'');document.querySelectorAll('#am button').forEach(b=>b.classList.toggle('on',b.dataset.m===m))}
+function saveAdd(){
+  const name=$('an').value.trim();if(!name){$('an').focus();return}
+  act('addItem',{item:{id:uid(),name,qty:draft.qty,unit:$('au').value,expiry:draft.expiry,mode:draft.mode||modeOf(S,name)}});
+  closeSheet();toast(name.charAt(0).toUpperCase()+name.slice(1)+' er lagt i køleskabet');
+}
+
+/* ---------- indkøb ---------- */
+function renderShop(){
+  $('title').textContent='Indkøb';
+  const open=S.shopping.filter(s=>!s.done),done=S.shopping.filter(s=>s.done);
+  $('subtitle').textContent=open.length?open.length+(open.length===1?' vare mangler':' varer mangler'):(done.length?'Alt er i kurven':'Intet at købe');
+  let b;
+  if(!S.shopper)b=`<div class="banner none"><div class="avatar">?</div><div class="grow"><b>Ingen står for indkøbet</b><span>Tag den, så ved ${esc(uname(other()))} det</span></div><button class="small" onclick="claim()">Jeg tager den</button></div>`;
+  else if(S.shopper.who===me())b=`<div class="banner me"><div class="avatar">${esc(initial(me()))}</div><div class="grow"><b>Du står for indkøbet</b><span>Siden ${when(S.shopper.at)} · ${esc(uname(other()))} kan se det</span></div><button class="small" onclick="act('unclaim')">Fortryd</button></div>`;
+  else b=`<div class="banner other"><div class="avatar">${esc(initial(S.shopper.who))}</div><div class="grow"><b>${esc(uname(S.shopper.who))} står for indkøbet</b><span>Siden ${when(S.shopper.at)}</span></div><button class="small" onclick="claim()">Overtag</button></div>`;
+  const row=s=>`<div class="row ${s.done?'done':''}">
+      <button class="check ${s.done?'on':''}" onclick="act('shopToggle',{shopId:'${esc(s.id)}'})" aria-label="Købt"></button>
+      <button class="grow" style="text-align:left" onclick="act('shopToggle',{shopId:'${esc(s.id)}'})"><div class="name">${esc(s.name)}</div><div class="meta">${s.qty} ${esc(s.unit)} · ${esc(uname(s.by))}, ${when(s.at)}</div></button>
+      <button class="x" onclick="act('shopRemove',{shopId:'${esc(s.id)}'})" aria-label="Fjern">×</button></div>`;
+  let h=b+`<form class="addbar" onsubmit="event.preventDefault();manualAdd()"><input id="sa" placeholder="Tilføj noget til listen…" list="known2" autocomplete="off" enterkeyhint="send"><datalist id="known2">${nameList().map(n=>`<option value="${esc(n)}">`).join('')}</datalist><button>Tilføj</button></form>`;
+  if(open.length)h+='<div class="section-title">Skal købes</div><div class="list">'+open.map(row).join('')+'</div>';
+  if(done.length){
+    h+='<div class="section-title">I kurven</div><div class="list">'+done.map(row).join('')+'</div>';
+    h+=`<button class="btn primary" style="margin-top:14px" onclick="finish()">Læg ${done.length} ${done.length===1?'vare':'varer'} i køleskabet</button>`;
+  }
+  if(!open.length&&!done.length)h+='<div class="empty"><b>Listen er tom</b>Når en vare er opbrugt og genbestilt, dukker den op her.</div>';
+  if(S.activity.length)h+='<div class="section-title">Seneste</div><div class="list feed">'+S.activity.slice(0,8).map(a=>`<div><time>${when(a.at)}</time><b>${esc(uname(a.who))}</b> ${esc(a.text)}</div>`).join('')+'</div>';
+  $('main').innerHTML=h;
+}
+function claim(){act('claim');toast('Du står for indkøbet',uname(other())+' får en notifikation')}
+function manualAdd(){
+  const el=$('sa'),v=el.value.trim();if(!v)return;
+  el.value='';el.blur();
+  act('shopAdd',{name:v});toast(v.charAt(0).toUpperCase()+v.slice(1)+' er sat på listen',uname(other())+' får en notifikation');
+}
+function finish(){
+  const n=S.shopping.filter(s=>s.done).length;
+  act('finish');tab='fridge';render();window.scrollTo(0,0);
+  toast(n+(n===1?' vare':' varer')+' er lagt i køleskabet','Tryk på "Sæt dato" for at tilføje udløbsdato');
+}
+
+/* ---------- os to ---------- */
+function renderUs(){
+  $('title').textContent='Os to';
+  $('subtitle').textContent='Denne telefon: '+uname(me());
+  const st=pushState();
+  const pushTxt={on:'Slået til',granted:'Tilladt, men ikke forbundet',off:'Slået fra',denied:'Blokeret i iPhonens indstillinger','needs-install':'Kræver at appen åbnes fra hjemmeskærmen',demo:'Vises som besked nederst i demoen',unsupported:'Understøttes ikke i denne browser'}[st];
+  $('main').innerHTML=`
+    <div class="section-title">Denne telefon tilhører</div>
+    <div class="seg"><button class="${me()===0?'on':''}" onclick="setMe(0)">${esc(uname(0))}</button><button class="${me()===1?'on':''}" onclick="setMe(1)">${esc(uname(1))}</button></div>
+    <div class="section-title">Notifikationer</div>
+    <div class="list"><div class="kv"><span>Status</span><span>${pushTxt}</span></div></div>
+    ${st==='off'||st==='granted'?'<button class="btn primary" style="margin-top:10px" onclick="enablePush()">Slå notifikationer til</button>':''}
+    ${st==='on'?'<button class="btn soft" style="margin-top:10px" onclick="testPush()">Send en test til mig selv</button>':''}
+    <div class="note">Du får besked, når ${esc(uname(other()))} bruger en vare op, sætter noget på listen eller tager indkøbet. I får begge en besked om morgenen, hvis noget udløber i dag eller i morgen.</div>
+    <div class="section-title">Navne</div>
+    <div class="list" style="padding:4px 16px 14px">
+      <div class="field"><label>Person 1</label><input value="${esc(S.users[0])}" onchange="act('setUsers',{users:[this.value,S.users[1]]})"></div>
+      <div class="field" style="margin-bottom:0"><label>Person 2</label><input value="${esc(S.users[1])}" onchange="act('setUsers',{users:[S.users[0],this.value]})"></div>
+    </div>
+    <div class="section-title">Forbindelse</div>
+    ${KOLESKAB_DEMO?'<div class="note">Dette er en demo. Data ligger kun på denne telefon. Skift mellem jer to øverst for at se det fra den andens side.</div>':''}<div class="list" ${KOLESKAB_DEMO?'hidden':''}><div class="kv"><span>Server</span><span>${esc(cfg.api.replace(/^https:\/\//,''))}</span></div>
+      <div class="kv"><span>Status</span><span>${online?(pending.length?'Gemmer…':'Forbundet'):'Offline'}</span></div></div>
+    <button class="btn" style="margin-top:10px" onclick="location.reload()">Genindlæs appen</button>
+    ${KOLESKAB_DEMO?'<button class="linkbtn" style="color:var(--bad)" onclick="demoReset()">Nulstil demoen</button>':'<button class="linkbtn" style="color:var(--bad)" onclick="resetConn()">Skift server eller husstandskode</button>'}`;
+}
+
+/* ---------- start ---------- */
+if('serviceWorker' in navigator){navigator.serviceWorker.register('sw.js').catch(()=>{});
+  navigator.serviceWorker.addEventListener('message',e=>{if(e.data==='refresh')refresh()})}
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')refresh()});
+window.addEventListener('online',()=>{flush();refresh()});
+setInterval(()=>{if(document.visibilityState==='visible')refresh()},5000);
+render();boot().then(()=>{refresh();
+  if(pushSupported&&Notification.permission==='granted'&&cfg.key&&(meIdx===0||meIdx===1))subscribe(true)});
+</script>
+</body>
+</html>
