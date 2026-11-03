@@ -110,6 +110,10 @@ nav svg{width:26px;height:26px}
 .sheetx{position:sticky;top:0;float:right;z-index:3;width:36px;height:36px;margin:2px -6px -38px 0;border-radius:50%;background:#e6e1d8;color:#4a544e;font-size:24px;line-height:1;display:grid;place-items:center;box-shadow:0 1px 3px rgba(0,0,0,.08)}
 .sheetx:active{background:#d9d3c8}
 .sheet h2{padding-right:44px}
+.obar{height:5px;border-radius:3px;background:#ebe7e0;margin-top:7px;overflow:hidden;max-width:180px}
+.obar i{display:block;height:100%;border-radius:3px}
+.obar.big{height:10px;max-width:none;margin-top:0;border-radius:5px}.obar.big i{border-radius:5px}
+.scanbtn{display:flex;align-items:center;justify-content:center;gap:10px;margin-top:4px}.scanbtn svg{width:22px;height:22px}
 .grab{width:40px;height:5px;border-radius:3px;background:#d6d1c8;margin:0 auto 14px}
 .sheet h2{margin:0 0 2px;font-size:24px;letter-spacing:-.02em}
 .sheet .meta{margin-bottom:16px}
@@ -194,7 +198,7 @@ var KOLESKAB_DEMO = false;
 var WHOLE_DEFAULT=['æg'];
 var DEFAULT_CATS=['Mejeri','Pålæg','Grøntsager','Dressing','Frugt'];
 function emptyState(){
-  return {users:['',''],items:[],shopping:[],shopper:null,activity:[],known:[],prefs:{},categories:DEFAULT_CATS.slice(),waste:[],seen:[],version:0};
+  return {users:['',''],items:[],shopping:[],shopper:null,activity:[],known:[],prefs:{},categories:DEFAULT_CATS.slice(),waste:[],barcodes:{},seen:[],version:0};
 }
 /* 'unit' = genbestil pr. enhed (fx mælk) · 'whole' = genbestil når alt er brugt (fx æg) */
 function modeOf(S,itemOrName){
@@ -204,13 +208,27 @@ function modeOf(S,itemOrName){
   if(p&&p.mode)return p.mode;
   return WHOLE_DEFAULT.indexOf(String(name).trim().toLowerCase())>=0?'whole':'unit';
 }
+/* Typisk holdbarhed efter åbning (dage). Kun et udgangspunkt – det, I selv angiver, huskes og går forud. */
+var DEFAULT_OPEN={'mælk':4,'fløde':4,'creme fraiche':5,'cremefraiche':5,'yoghurt':4,'skyr':4,'ymer':4,'juice':5,'smør':30,'ost':14,'skiveost':7,'revet ost':5,'mozzarella':3,'feta':5,'pålæg':3,'skinke':3,'hamburgerryg':3,'leverpostej':3,'spegepølse':7,'salami':7,'rullepølse':3,'hummus':4,'pesto':7,'remoulade':30,'mayonnaise':30,'ketchup':60,'sennep':90,'dressing':14,'syltetøj':30,'marmelade':30,'oliven':14,'kapers':60,'tomatpuré':5,'kokosmælk':3,'bouillon':4,'tzatziki':3,'pasta':3};
+var OPEN_KEYS=Object.keys(DEFAULT_OPEN).sort(function(a,b){return b.length-a.length});
+function openDaysOf(S,it){
+  if(it.openDays)return {days:it.openDays,src:'item'};
+  var k=String(it.name).trim().toLowerCase(), p=S.prefs&&S.prefs[k];
+  if(p&&p.openDays)return {days:p.openDays,src:'pref'};
+  for(var i=0;i<OPEN_KEYS.length;i++){var d=OPEN_KEYS[i];if(k===d||k.slice(-d.length)===d)return {days:DEFAULT_OPEN[d],src:'default'}}
+  return {days:null,src:'none'};
+}
+function addDaysStr(d,n){var t=new Date(d+'T12:00:00Z');t.setUTCDate(t.getUTCDate()+n);return t.toISOString().slice(0,10)}
+function openDeadline(S,it){if(!it.opened)return null;var o=openDaysOf(S,it);return o.days?addDaysStr(it.opened,o.days):null}
+/* den dato varen reelt skal være brugt: den tidligste af udløbsdato og "åbnet + holdbarhed" */
+function deadlineOf(S,it){var a=it.expiry||null,b=openDeadline(S,it);if(a&&b)return a<b?a:b;return a||b}
 /* Den kategori appen husker for en vare (eller null) */
 function catOf(S,name){var p=S.prefs&&S.prefs[String(name).trim().toLowerCase()];return p&&p.cat||null}
 /* Anvender en handling på tilstanden. Returnerer de notifikationer, der skal sendes.
    to: 'other' = kun den anden person, 'all' = begge. */
 function reduce(S,a){
   if(!a||!a.type)return [];
-  S.seen=S.seen||[];S.prefs=S.prefs||{};if(!S.categories)S.categories=DEFAULT_CATS.slice();if(!S.waste)S.waste=[];
+  S.seen=S.seen||[];S.prefs=S.prefs||{};if(!S.categories)S.categories=DEFAULT_CATS.slice();if(!S.waste)S.waste=[];if(!S.barcodes)S.barcodes={};
   if(a.id){
     if(S.seen.indexOf(a.id)>=0)return [];
     S.seen.push(a.id);
@@ -265,10 +283,11 @@ function reduce(S,a){
       var qty=Math.max(1,Math.min(999,+it.qty||1)), unit=it.unit||'stk', exp=it.expiry||null;
       var mode=it.mode==='whole'||it.mode==='unit'?it.mode:modeOf(S,name);
       var cat='category' in it?validCat(it.category):catOf(S,name);
-      var ex=S.items.find(function(i){return same(i.name,name)&&i.expiry===exp&&i.unit===unit});
+      var ex=S.items.find(function(i){return same(i.name,name)&&i.expiry===exp&&i.unit===unit&&!i.opened});
       if(ex){ex.qty+=qty;ex.mode=mode;ex.category=cat}else S.items.push({id:it.id||a.id,name:name,qty:qty,unit:unit,expiry:exp,mode:mode,category:cat});
       setPref(name,mode==='whole'?{mode:mode,pack:qty,unit:unit,cat:cat}:{mode:mode,cat:cat});
       remember(name);
+      if(it.barcode&&/^\d{8,14}$/.test(it.barcode)){S.barcodes[it.barcode]=name;var bk=Object.keys(S.barcodes);if(bk.length>3000)delete S.barcodes[bk[0]]}
       break;}
     case 'editItem':{
       var e=findItem(a.itemId);if(!e)break;
@@ -304,6 +323,23 @@ function reduce(S,a){
       if(w.qty<=0)S.items=S.items.filter(function(i){return i!==w});
       log('smed '+(wlast?w.name.toLowerCase():wn+' '+w.unit+' '+w.name.toLowerCase())+' ud');
       if(wlast)out.push({to:'other',title:w.name+' er smidt ud',body:'Registreret af '+nm(by),tag:'used'});
+      break;}
+    case 'markOpened':{
+      var o=findItem(a.itemId);if(!o)break;
+      var od=/^\d{4}-\d{2}-\d{2}$/.test(a.date||'')?a.date:null;
+      var ds=a.days?Math.max(1,Math.min(365,Math.round(+a.days)||1)):null;
+      if(ds)setPref(o.name,{openDays:ds});
+      if(od&&!o.opened&&o.qty>1&&modeOf(S,o)!=='whole'){
+        /* én enhed åbnes – resten forbliver uåbnet */
+        o.qty-=1;
+        S.items.push({id:(a.id||String(at))+'o',name:o.name,qty:1,unit:o.unit,expiry:o.expiry,mode:o.mode,category:o.category,opened:od,openDays:ds});
+      }else{
+        o.opened=od;if(ds)o.openDays=ds;if(!od)o.openDays=null;
+      }
+      break;}
+    case 'setOpenDays':{
+      var sd=findItem(a.itemId);if(!sd)break;
+      sd.openDays=Math.max(1,Math.min(365,Math.round(+a.days)||1));setPref(sd.name,{openDays:sd.openDays});
       break;}
     case 'deleteItem':
       S.items=S.items.filter(function(i){return i.id!==a.itemId});
@@ -398,6 +434,7 @@ const persist=()=>{LS.set('kb-state',S);LS.set('kb-pending',pending)};
 let demoSrv=null;
 function demoApi(path,body){
   if(!demoSrv)demoSrv=LS.get('kb-demo-srv',null)||demoSeed();
+  if(path.indexOf('/api/barcode')===0){const c=path.split('code=')[1];return {code:c,name:demoSrv.barcodes&&demoSrv.barcodes[c]||null,source:demoSrv.barcodes&&demoSrv.barcodes[c]?'own':'none'}}
   if(path==='/api/action'){const msgs=reduce(demoSrv,body.action);LS.set('kb-demo-srv',demoSrv);
     setTimeout(()=>msgs.forEach(m=>{if(m.to!=='other')return;toast('🔔 Til '+uname(other())+': '+m.title,m.body)}),900)}
   return JSON.parse(JSON.stringify({state:demoSrv,vapid:null}));
@@ -406,6 +443,10 @@ function demoSeed(){
   const S0=emptyState(),now=Date.now();
   [['Mælk',2,'stk',3,'unit','Mejeri'],['Æg',6,'stk',12,'whole',null],['Smør',1,'stk',21,'unit','Mejeri'],['Yoghurt',1,'stk',1,'unit','Mejeri'],['Spegepølse',1,'pk',0,'unit','Pålæg'],['Agurk',1,'stk',-1,'unit','Grøntsager'],['Skiveost',1,'pk',14,'unit','Mejeri'],['Remoulade',1,'stk',30,'unit','Dressing'],['Æbler',4,'stk',6,'unit','Frugt']]
     .forEach(([name,qty,unit,d,mode,category],i)=>reduce(S0,{type:'addItem',id:'d'+i,at:now,by:0,item:{id:'d'+i,name,qty,unit,expiry:d==null?null:addDays(d),mode,category}}));
+  reduce(S0,{type:'addItem',id:'d9',at:now,by:0,item:{id:'d9',name:'Leverpostej',qty:1,unit:'stk',expiry:addDays(9),mode:'unit',category:'Pålæg'}});
+  reduce(S0,{type:'markOpened',id:'o1',at:now,by:0,itemId:'d9',date:addDays(-2),days:3});
+  reduce(S0,{type:'markOpened',id:'o2',at:now,by:0,itemId:'d7',date:addDays(-12),days:30});
+  reduce(S0,{type:'markOpened',id:'o3',at:now,by:0,itemId:'d0',date:addDays(-1),days:4});
   S0.activity=[];return S0;
 }
 function demoReset(){LS.del('kb-demo-srv');LS.del('kb-state');LS.del('kb-pending');LS.del('kb-me');demoSrv=null;S=null;pending=[];meIdx=null;tab='fridge';boot()}
@@ -420,7 +461,7 @@ function setOnline(v){if(online!==v){online=v;renderSafe()}}
 
 function act(type,payload){
   const a=Object.assign({type,id:uid(),by:me(),at:Date.now()},payload||{});
-  reduce(S,a);pending.push(a);persist();render();flush();
+  reduce(S,a);pending.push(a);persist();render();flush();return a;
 }
 let flushing=false;
 async function flush(){
@@ -457,7 +498,25 @@ function openSheet(html){document.documentElement.classList.add('locked');$('toa
 function closeSheet(){document.documentElement.classList.remove('locked');$('sheet').classList.remove('on');$('backdrop').classList.remove('on')}
 
 /* ---------- udløb ---------- */
+function openInfo(it){
+  if(!it.opened)return null;
+  const o=openDaysOf(S,it);if(!o.days)return {days:null,src:o.src};
+  const used=-daysUntil(it.opened), left=o.days-used, frac=Math.max(0,Math.min(1,used/o.days));
+  const hue=Math.round(140*(1-frac));
+  return {days:o.days,src:o.src,used,left,frac,end:addDaysStr(it.opened,o.days),color:left<0?'hsl(0,62%,45%)':`hsl(${hue},55%,42%)`};
+}
 function status(it){
+  const oi=openInfo(it);
+  if(oi&&oi.days&&(!it.expiry||oi.end<=it.expiry)){
+    const l=oi.left;
+    if(l<0)return{cls:'bad',chip:'bad',label:'Åben for længe',open:oi};
+    if(l===0)return{cls:'bad',chip:'bad',label:'Åben · sidste dag',open:oi};
+    if(l===1)return{cls:'warn',chip:'warn',label:'Åben · 1 dag',open:oi};
+    return{cls:oi.frac>=.5?'warn':'',chip:oi.frac>=.5?'warn':'',label:'Åben · '+l+' dage',open:oi};
+  }
+  const r=expStatus(it);if(oi)r.open=oi;return r;
+}
+function expStatus(it){
   if(!it.expiry)return{cls:'none',chip:'',label:'Ingen dato'};
   const d=daysUntil(it.expiry);
   if(d<0)return{cls:'bad',chip:'bad',label:d===-1?'Udløb i går':'Udløbet '+fmtDate(it.expiry)};
@@ -467,9 +526,10 @@ function status(it){
   return{cls:'',chip:'',label:fmtDate(it.expiry)};
 }
 const sortItems=a=>a.slice().sort((x,y)=>{
-  if(!x.expiry&&!y.expiry)return x.name.localeCompare(y.name,'da');
-  if(!x.expiry)return 1;if(!y.expiry)return -1;
-  return x.expiry.localeCompare(y.expiry)||x.name.localeCompare(y.name,'da');
+  const dx=deadlineOf(S,x),dy=deadlineOf(S,y);
+  if(!dx&&!dy)return x.name.localeCompare(y.name,'da');
+  if(!dx)return 1;if(!dy)return -1;
+  return dx.localeCompare(dy)||x.name.localeCompare(y.name,'da');
 });
 
 /* ---------- opstart / porte ---------- */
@@ -607,7 +667,7 @@ function pushCard(){
 function renderFridge(){
   $('title').textContent='Køleskabet';
   const items=sortItems(S.items);
-  const soon=items.filter(i=>i.expiry&&daysUntil(i.expiry)<=3).length;
+  const soon=items.filter(i=>{const d=deadlineOf(S,i);return d&&daysUntil(d)<=(i.opened?1:3)}).length;
   $('subtitle').textContent=items.length?(items.length+(items.length===1?' vare':' varer')+(soon?' · '+soon+' skal bruges snart':'')):'Tomt';
   let h=pushCard();
   if(!items.length)h+='<div class="empty"><b>Køleskabet er tomt</b>Tryk på + for at registrere en vare.</div>';
@@ -615,8 +675,9 @@ function renderFridge(){
     const row=it=>{const st=status(it);
       return `<button class="row" onclick="openItem('${esc(it.id)}')">
       <span class="dot ${st.cls}"></span>
-      <span class="grow"><div class="name">${esc(it.name)}</div><div class="meta">${it.qty} ${esc(it.unit)}</div></span>
-      <span class="${it.expiry?'chip '+st.chip:'newchip'}">${it.expiry?st.label:'Sæt dato'}</span></button>`};
+      <span class="grow"><div class="name">${esc(it.name)}</div><div class="meta">${it.qty} ${esc(it.unit)}${it.opened?' · åbnet '+(it.opened===today()?'i dag':fmtDate(it.opened)):''}</div>
+        ${st.open&&st.open.days?`<div class="obar"><i style="width:${Math.max(4,st.open.frac*100)}%;background:${st.open.color}"></i></div>`:''}</span>
+      <span class="${it.expiry||st.open?'chip '+st.chip:'newchip'}">${it.expiry||st.open?st.label:'Sæt dato'}</span></button>`};
     const cats=S.categories||[];
     const groups=[...cats.map(c=>({name:c,items:items.filter(i=>i.category===c)})),
       {name:'Uden kategori',items:items.filter(i=>!i.category||cats.indexOf(i.category)<0)}].filter(g=>g.items.length);
@@ -627,7 +688,7 @@ function renderFridge(){
 let used=1;
 function openItem(id,keepN){
   const it=S.items.find(i=>i.id===id);if(!it)return;
-  if(!keepN)used=1;used=Math.min(used,it.qty);
+  if(!keepN){used=1;openDraftDays=null}used=Math.min(used,it.qty);
   const st=status(it), whole=modeOf(S,it)==='whole', all=used>=it.qty, many=it.qty>1;
   const E=esc(id);curItem=id;newCatFor='item';
   const lbl=all?'Opbrugt':'Brugt '+used+' '+esc(it.unit);
@@ -641,11 +702,12 @@ function openItem(id,keepN){
       <button class="btn" onclick="useUp('${E}',false)">${lbl}</button>
       <button class="btn danger" onclick="discard('${E}')">${all?'Smidt ud':'Smidt '+used+' '+esc(it.unit)+' ud'}</button>`;
   }
-  openSheet(`<h2>${esc(it.name)}</h2><div class="meta">${it.qty} ${esc(it.unit)} i køleskabet · ${it.expiry?'holdbar til '+fmtDate(it.expiry)+(daysUntil(it.expiry)<=3?' ('+st.label.toLowerCase()+')':''):'ingen udløbsdato'}</div>
+  openSheet(`<h2>${esc(it.name)}</h2><div class="meta">${it.qty} ${esc(it.unit)} i køleskabet · ${it.expiry?'udløber '+fmtDate(it.expiry)+(daysUntil(it.expiry)<=3?' ('+expStatus(it).label.toLowerCase()+')':''):'ingen udløbsdato'}</div>
     ${many?`<div class="field" style="margin-top:0"><label>Hvor mange er brugt?</label>
       <div class="stepper"><button onclick="useN('${E}',-1)">−</button><span>${used} af ${it.qty} ${esc(it.unit)}</span><button onclick="useN('${E}',1)">+</button></div>
       <div class="chips" style="justify-content:center"><button onclick="used=${it.qty};openItem('${E}',true)" class="${all?'on':''}">Alle ${it.qty}</button></div></div>`:''}
     ${buttons}
+    ${openSection(it)}
     <div class="section-title" style="margin-top:26px">Ret varen</div>
     <div class="two">
       <div class="field" style="margin:0"><label>Antal</label>
@@ -662,6 +724,39 @@ function openItem(id,keepN){
 }
 let curItem=null;
 function itemPick(i){const it=S.items.find(x=>x.id===curItem);if(!it)return;const c=S.categories[i];act('editItem',{itemId:curItem,category:it.category===c?null:c});openItem(curItem,true)}
+/* ---------- åbnet ---------- */
+let openDraftDays=null;
+function openSection(it){
+  const E=esc(it.id), oi=openInfo(it), od=openDaysOf(S,it);
+  const days=oi&&oi.days?oi.days:(openDraftDays||od.days||4);
+  const srcTxt=od.src==='default'?'Typisk for '+esc(it.name.toLowerCase())+' – tjek pakken':od.src==='none'&&!openDraftDays?'Ukendt – tjek pakken og ret antallet':'Husket til næste gang';
+  const stepper=(fn)=>`<div class="stepper"><button onclick="${fn}(-1)">−</button><span>${days} ${days===1?'dag':'dage'} efter åbning</span><button onclick="${fn}(1)">+</button></div><div class="meta" style="margin:6px 2px 0;font-size:13px">${srcTxt}</div>`;
+  if(!it.opened){
+    const split=it.qty>1&&modeOf(S,it)!=='whole';
+    return `<div class="section-title" style="margin-top:26px">Åbnet</div>
+      <div class="chips" style="margin-top:0"><button onclick="markOpen(0)">Åbnet i dag</button><button onclick="markOpen(-1)">I går</button><button onclick="markOpen(-2)">For 2 dage siden</button></div>
+      <div class="field" style="margin-top:12px">${stepper('draftDays')}</div>
+      ${split?`<div class="note" style="margin-top:0">1 af ${it.qty} ${esc(it.unit)} markeres som åbnet – resten forbliver uåbnet.</div>`:''}`;
+  }
+  return `<div class="section-title" style="margin-top:26px">Åbnet</div>
+    <div class="list" style="padding:14px 16px">
+      ${oi.days?`<div class="obar big"><i style="width:${Math.max(4,oi.frac*100)}%;background:${oi.color}"></i></div>
+      <div class="meta" style="margin:8px 0 0">Åbnet ${fmtDate(it.opened)} · ${oi.left<0?'skulle have været brugt '+fmtDate(oi.end):'dag '+(oi.used+1)+' af '+oi.days+' · holder til '+fmtDate(oi.end)}</div>`:`<div class="meta" style="margin:0">Åbnet ${fmtDate(it.opened)}</div>`}
+    </div>
+    <div class="field" style="margin-top:12px">${stepper('setDays')}</div>
+    <div class="field"><label>Åbningsdato</label><input type="date" value="${esc(it.opened)}" onchange="if(this.value){act('markOpened',{itemId:'${E}',date:this.value});openItem('${E}',true)}"></div>
+    <button class="linkbtn" onclick="act('markOpened',{itemId:'${E}',date:null});openItem('${E}',true)">Ikke åbnet alligevel</button>`;
+}
+function draftDays(d){const it=S.items.find(i=>i.id===curItem);if(!it)return;const od=openDaysOf(S,it);openDraftDays=Math.max(1,Math.min(365,(openDraftDays||od.days||4)+d));openItem(curItem,true)}
+function setDays(d){const it=S.items.find(i=>i.id===curItem);if(!it)return;const oi=openInfo(it);act('setOpenDays',{itemId:curItem,days:Math.max(1,((oi&&oi.days)||openDaysOf(S,it).days||4)+d)});openItem(curItem,true)}
+function markOpen(off){
+  const it=S.items.find(i=>i.id===curItem);if(!it)return;
+  const days=openDraftDays||openDaysOf(S,it).days||4;
+  const willSplit=!it.opened&&it.qty>1&&modeOf(S,it)!=='whole';
+  const a=act('markOpened',{itemId:curItem,date:addDays(off),days});
+  openItem(willSplit?a.id+'o':curItem);
+  toast(it.name+' er markeret som åbnet','Holder '+days+' dage efter åbning');
+}
 function useN(id,d){const it=S.items.find(i=>i.id===id);if(!it)return;used=Math.max(1,Math.min(it.qty,used+d));openItem(id,true)}
 function stepItem(id,d){const it=S.items.find(i=>i.id===id);if(!it)return;act('editItem',{itemId:id,qty:Math.max(1,it.qty+d)});openItem(id,true)}
 function useUp(id,reorder){
@@ -712,8 +807,11 @@ const COMMON=['Mælk','Letmælk','Skummetmælk','Æg','Smør','Ost','Skiveost','
 const nameList=()=>[...new Set([...(S.known||[]),...COMMON])];
 let draft;
 function openAdd(){
-  draft={qty:1,expiry:addDays(7),mode:null,cat:undefined};newCatFor='add';
+  draft={qty:1,expiry:addDays(7),mode:null,cat:undefined,barcode:null};newCatFor='add';
   openSheet(`<h2>Ny vare</h2><div class="meta">Registrér hvad der er sat i køleskabet</div>
+    <button class="btn soft scanbtn" onclick="$('scanfile').click()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2M7 8v8M10 8v8M13 8v8M17 8v8"/></svg>Scan stregkode</button>
+    <input type="file" id="scanfile" accept="image/*" capture="environment" hidden onchange="scanPhoto(this)">
+    <div id="scaninfo" class="meta" style="margin:8px 2px 0;min-height:0"></div>
     <div class="field"><label>Vare</label><input id="an" list="known" placeholder="Fx mælk" autocomplete="off" enterkeyhint="done" oninput="markMode();drawAddCats()">
       <datalist id="known">${nameList().map(n=>`<option value="${esc(n)}">`).join('')}</datalist></div>
     <div class="field"><label>Kategori</label><div class="chips" style="margin-top:0" id="acats"></div>${newCatBox()}</div>
@@ -748,9 +846,64 @@ function saveNewCat(){
 const curAddCat=()=>draft.cat!==undefined?draft.cat:catOf(S,($('an')||{}).value||'');
 function drawAddCats(){const el=$('acats');if(el)el.innerHTML=catChips(curAddCat(),'addPick')}
 function addPick(i){const c=S.categories[i];draft.cat=curAddCat()===c?null:c;drawAddCats()}
+/* ---------- stregkode ---------- */
+const ZXING_URL='https://cdn.jsdelivr.net/npm/@zxing/library@0.23.0/umd/index.min.js';
+let zxingP=null;
+function loadZXing(){
+  if(window.ZXing)return Promise.resolve();
+  if(!zxingP)zxingP=new Promise((res,rej)=>{const sc=document.createElement('script');sc.src=ZXING_URL;sc.onload=res;sc.onerror=()=>{zxingP=null;rej(new Error('Kunne ikke hente stregkode-læseren. Har du net?'))};document.head.appendChild(sc)});
+  return zxingP;
+}
+function eanOk(c){if(!/^\d{8}$|^\d{12,14}$/.test(c))return false;const d=c.split('').map(Number),chk=d.pop();let sum=0;d.reverse().forEach((n,i)=>sum+=n*(i%2===0?3:1));return (10-sum%10)%10===chk}
+async function decodeBarcode(file){
+  const url=URL.createObjectURL(file);
+  try{
+    const img=await new Promise((res,rej)=>{const im=new Image();im.onload=()=>res(im);im.onerror=()=>rej(new Error('Billedet kunne ikke åbnes'));im.src=url});
+    if('BarcodeDetector' in window){
+      try{const bd=new BarcodeDetector({formats:['ean_13','ean_8','upc_a','upc_e']});const r=await bd.detect(img);if(r&&r[0]&&eanOk(r[0].rawValue))return r[0].rawValue}catch(e){}
+    }
+    await loadZXing();
+    const Z=window.ZXing,hints=new Map();
+    hints.set(Z.DecodeHintType.POSSIBLE_FORMATS,[Z.BarcodeFormat.EAN_13,Z.BarcodeFormat.EAN_8,Z.BarcodeFormat.UPC_A,Z.BarcodeFormat.UPC_E]);
+    hints.set(Z.DecodeHintType.TRY_HARDER,true);
+    const reader=new Z.MultiFormatReader();reader.setHints(hints);
+    const cv=document.createElement('canvas'),ctx=cv.getContext('2d',{willReadFrequently:true});
+    for(const w of [1200,800,1700]){
+      for(const rot of [0,90]){
+        const sc=Math.min(1,w/Math.max(img.naturalWidth,img.naturalHeight)),iw=Math.round(img.naturalWidth*sc),ih=Math.round(img.naturalHeight*sc);
+        cv.width=rot?ih:iw;cv.height=rot?iw:ih;ctx.fillStyle='#fff';ctx.fillRect(0,0,cv.width,cv.height);ctx.save();
+        if(rot){ctx.translate(cv.width,0);ctx.rotate(Math.PI/2)}
+        ctx.drawImage(img,0,0,iw,ih);ctx.restore();
+        try{const r=reader.decode(new Z.BinaryBitmap(new Z.HybridBinarizer(new Z.HTMLCanvasElementLuminanceSource(cv))));const t=r.getText();if(eanOk(t))return t}catch(e){}
+      }
+    }
+    return null;
+  }finally{URL.revokeObjectURL(url)}
+}
+async function scanPhoto(input){
+  const f=input.files&&input.files[0];input.value='';if(!f)return;
+  const info=$('scaninfo');info.textContent='Læser stregkoden…';
+  let code=null;
+  try{code=await decodeBarcode(f)}catch(e){info.innerHTML='<span style="color:var(--bad)">'+esc(e.message)+'</span>';return}
+  if(!$('scaninfo'))return;
+  if(!code){info.innerHTML='<span style="color:var(--bad)">Kunne ikke finde en stregkode på billedet.</span> Prøv igen tættere på, med stregkoden vandret og i godt lys.';return}
+  info.textContent='Stregkode '+code+' – slår op…';
+  let r;
+  try{r=await api('/api/barcode?code='+code)}catch(e){r={code,name:null,source:'offline'}}
+  if(!$('scaninfo'))return;
+  draft.barcode=code;
+  const an=$('an');
+  if(r.name){
+    an.value=r.name;markMode();drawAddCats();
+    info.innerHTML=r.source==='own'?'✓ Kendt vare – udfyldt fra sidst':'✓ Fundet i Open Food Facts'+(r.brand?' · '+esc(r.brand):'')+(r.quantity?' · '+esc(r.quantity):'')+'. Ret gerne navnet, så husker appen jeres version.';
+  }else{
+    an.value='';an.focus();
+    info.innerHTML=r.source==='offline'?'Ingen forbindelse – skriv navnet, så gemmes stregkoden, når der er net.':'Ukendt stregkode. Skriv navnet én gang, så husker appen den næste gang.';
+  }
+}
 function saveAdd(){
   const name=$('an').value.trim();if(!name){$('an').focus();return}
-  act('addItem',{item:{id:uid(),name,qty:draft.qty,unit:$('au').value,expiry:draft.expiry,mode:draft.mode||modeOf(S,name),category:curAddCat()}});
+  act('addItem',{item:{id:uid(),name,qty:draft.qty,unit:$('au').value,expiry:draft.expiry,mode:draft.mode||modeOf(S,name),category:curAddCat(),barcode:draft.barcode||undefined}});
   closeSheet();toast(name.charAt(0).toUpperCase()+name.slice(1)+' er lagt i køleskabet');
 }
 
