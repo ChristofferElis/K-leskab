@@ -460,7 +460,7 @@ function demoApi(path,body){
     if(p.indexOf('/v2/offers?')===0){if(p.indexOf('offset=0')<0)return [];const B=p.indexOf('dealer_ids=B')>0;
       return B?[O('1','Danæg skrabeæg',22,28,'Bilka','10 stk'),O('2','Lurpak smør',18,24.95,'Bilka','200 g'),O('3','Kyllingebrystfileter',49,65,'Bilka','900 g'),O('4','Marabou mælkechokolade',15,null,'Bilka'),...Array.from({length:30},(_,i)=>O('x'+i,'Vare '+i,10,null,'Bilka'))]
         :[O('5','Arla Lærkevang letmælk',11,13.95,'føtex','1 liter'),O('6','Hakket oksekød 8-12%',45,59,'føtex','500 g'),O('7','Cherry tomater',12,null,'føtex','250 g'),O('8','Rugbrødschips',20,null,'føtex')];}
-    if(p.indexOf('/v1-beta/product-suggestions')===0){const q=decodeURIComponent(p.split('query=')[1]||'');const h=[...q].reduce((a,c)=>a+c.charCodeAt(0),0);return {suggestions:[{title:q.charAt(0).toUpperCase()+q.slice(1)+' (eksempel)',prod_id:'d'+h,price:8+h%30+.95}]}}
+    if(p.indexOf('/product-suggestions')>0){const q=decodeURIComponent(p.split('query=')[1]||'');const h=[...q].reduce((a,c)=>a+c.charCodeAt(0),0);return {suggestions:[{title:q.charAt(0).toUpperCase()+q.slice(1)+' (eksempel)',prod_id:'d'+h,price:8+h%30+.95}]}}
     return [];
   }
   if(path.indexOf('/api/barcode')===0){const c=path.split('code=')[1];return {code:c,name:demoSrv.barcodes&&demoSrv.barcodes[c]||null,source:demoSrv.barcodes&&demoSrv.barcodes[c]?'own':'none'}}
@@ -938,7 +938,9 @@ function rank(name,pool){
     .filter(o=>o.score>=.45).sort((a,b)=>b.score-a.score||a.p-b.p);
 }
 async function normalPrices(name){
-  const d=await sal('/v1-beta/product-suggestions/relevant-products?query='+encodeURIComponent(name));
+  let d;
+  try{d=await sal('/v1/product-suggestions/relevant-products?query='+encodeURIComponent(name))}
+  catch(e){if(e.status===404)d=await sal('/v1-beta/product-suggestions/relevant-products?query='+encodeURIComponent(name));else throw e}
   const arr=Array.isArray(d)?d:(d.suggestions||d.products||d.results||[]);
   return arr.map((x,i)=>({id:'n:'+(x.prod_id||x.id||i),title:String(x.title||x.description||'').trim(),info:String(x.description||''),price:+x.price,score:pscore(name,(x.title||'')+' '+(x.description||'')),i}))
     .filter(x=>x.price>0&&x.score>=.6).sort((a,b)=>b.score-a.score||a.i-b.i).slice(0,5);
@@ -1028,7 +1030,7 @@ function pickPrice(k,id){act('setPriceChoice',{name:k,pick:id});prOpen=null;draw
 async function checkSalling(btn){
   btn.textContent='Tjekker …';
   try{const r=await api('/api/salling-check');
-    btn.textContent=r.ok?'✓ Salling-nøglen virker':r.reason?r.reason:'Fejl: produktforslag '+r.productSuggestions+', nedsatte varer '+r.foodWaste;
+    btn.textContent=r.ok?'✓ Salling-nøglen virker':r.reason?r.reason:'Ikke helt: produktforslag svarer '+r.productSuggestions+', nedsatte varer svarer '+r.foodWaste+' (401/403 = nøglen afvist eller API ikke valgt i projektet)';
   }catch(e){btn.textContent='Kunne ikke tjekke: '+e.message}
 }
 
