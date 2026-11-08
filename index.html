@@ -114,6 +114,15 @@ nav svg{width:26px;height:26px}
 .obar i{display:block;height:100%;border-radius:3px}
 .obar.big{height:10px;max-width:none;margin-top:0;border-radius:5px}.obar.big i{border-radius:5px}
 .scanbtn{display:flex;align-items:center;justify-content:center;gap:10px;margin-top:4px}.scanbtn svg{width:22px;height:22px}
+.ptotal{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;background:var(--accent);color:#fff;border-radius:var(--r);padding:16px 18px;margin:4px 0 12px}
+.ptotal small{display:block;opacity:.8;font-size:13px}.ptotal b{font-size:30px;letter-spacing:-.02em}.ptotal .pside{text-align:right;font-size:13px;opacity:.9}
+.prow{border-bottom:1px solid var(--line)}.prow:last-child{border-bottom:0}.prow .row{border-bottom:0}
+.row .p,.alts .p{font-weight:650;white-space:nowrap;text-align:right}.row .p small{display:block;font-weight:400;color:var(--muted);font-size:12.5px;text-decoration:line-through}
+.prow .chip{display:inline-block;margin-top:5px;font-size:12px;padding:3px 8px}
+.alts{padding:0 10px 10px;display:flex;flex-direction:column;gap:6px}
+.alts button{display:flex;gap:10px;align-items:center;text-align:left;background:#f6f3ee;border-radius:12px;padding:10px 12px;border:1.5px solid transparent}
+.alts button.on{border-color:var(--accent);background:var(--accent-soft)}
+.alts b{display:block;font-size:15px}.alts small{display:block;color:var(--muted);font-size:12.5px}
 .grab{width:40px;height:5px;border-radius:3px;background:#d6d1c8;margin:0 auto 14px}
 .sheet h2{margin:0 0 2px;font-size:24px;letter-spacing:-.02em}
 .sheet .meta{margin-bottom:16px}
@@ -198,7 +207,7 @@ var KOLESKAB_DEMO = false;
 var WHOLE_DEFAULT=['æg'];
 var DEFAULT_CATS=['Mejeri','Pålæg','Grøntsager','Dressing','Frugt'];
 function emptyState(){
-  return {users:['',''],items:[],shopping:[],shopper:null,activity:[],known:[],prefs:{},categories:DEFAULT_CATS.slice(),waste:[],barcodes:{},seen:[],version:0};
+  return {users:['',''],items:[],shopping:[],shopper:null,activity:[],known:[],prefs:{},categories:DEFAULT_CATS.slice(),waste:[],barcodes:{},settings:{},priceChoice:{},seen:[],version:0};
 }
 /* 'unit' = genbestil pr. enhed (fx mælk) · 'whole' = genbestil når alt er brugt (fx æg) */
 function modeOf(S,itemOrName){
@@ -228,13 +237,14 @@ function catOf(S,name){var p=S.prefs&&S.prefs[String(name).trim().toLowerCase()]
    to: 'other' = kun den anden person, 'all' = begge. */
 function reduce(S,a){
   if(!a||!a.type)return [];
-  S.seen=S.seen||[];S.prefs=S.prefs||{};if(!S.categories)S.categories=DEFAULT_CATS.slice();if(!S.waste)S.waste=[];if(!S.barcodes)S.barcodes={};
+  S.seen=S.seen||[];S.prefs=S.prefs||{};if(!S.categories)S.categories=DEFAULT_CATS.slice();if(!S.waste)S.waste=[];if(!S.barcodes)S.barcodes={};if(!S.settings)S.settings={};if(!S.priceChoice)S.priceChoice={};
   if(a.id){
     if(S.seen.indexOf(a.id)>=0)return [];
     S.seen.push(a.id);
     if(S.seen.length>300)S.seen.splice(0,S.seen.length-300);
   }
   var by=a.by===1?1:0, at=a.at||Date.now(), out=[];
+  var day=/^\d{4}-\d{2}-\d{2}$/.test(a.day||'')?a.day:new Date(at).toISOString().slice(0,10);
   var nm=function(i){return (S.users[i]||'').trim()||('Person '+(i+1))};
   var key=function(n){return String(n).trim().toLowerCase()};
   var same=function(x,y){return key(x)===key(y)};
@@ -283,8 +293,9 @@ function reduce(S,a){
       var qty=Math.max(1,Math.min(999,+it.qty||1)), unit=it.unit||'stk', exp=it.expiry||null;
       var mode=it.mode==='whole'||it.mode==='unit'?it.mode:modeOf(S,name);
       var cat='category' in it?validCat(it.category):catOf(S,name);
-      var ex=S.items.find(function(i){return same(i.name,name)&&i.expiry===exp&&i.unit===unit&&!i.opened});
-      if(ex){ex.qty+=qty;ex.mode=mode;ex.category=cat}else S.items.push({id:it.id||a.id,name:name,qty:qty,unit:unit,expiry:exp,mode:mode,category:cat});
+      var added=/^\d{4}-\d{2}-\d{2}$/.test(it.added||'')?it.added:day;
+      var ex=S.items.find(function(i){return same(i.name,name)&&i.expiry===exp&&i.unit===unit&&!i.opened&&(i.added||null)===added});
+      if(ex){ex.qty+=qty;ex.mode=mode;ex.category=cat}else S.items.push({id:it.id||a.id,name:name,qty:qty,unit:unit,expiry:exp,mode:mode,category:cat,added:added});
       setPref(name,mode==='whole'?{mode:mode,pack:qty,unit:unit,cat:cat}:{mode:mode,cat:cat});
       remember(name);
       if(it.barcode&&/^\d{8,14}$/.test(it.barcode)){S.barcodes[it.barcode]=name;var bk=Object.keys(S.barcodes);if(bk.length>3000)delete S.barcodes[bk[0]]}
@@ -293,6 +304,7 @@ function reduce(S,a){
       var e=findItem(a.itemId);if(!e)break;
       if(a.qty!=null)e.qty=Math.max(1,Math.min(999,+a.qty||1));
       if('expiry' in a)e.expiry=a.expiry||null;
+      if('added' in a)e.added=/^\d{4}-\d{2}-\d{2}$/.test(a.added||'')?a.added:null;
       if('category' in a){e.category=validCat(a.category);setPref(e.name,{cat:e.category})}
       if(a.mode==='whole'||a.mode==='unit'){e.mode=a.mode;setPref(e.name,a.mode==='whole'?{mode:'whole',pack:e.qty,unit:e.unit}:{mode:'unit'})}
       break;}
@@ -332,7 +344,7 @@ function reduce(S,a){
       if(od&&!o.opened&&o.qty>1&&modeOf(S,o)!=='whole'){
         /* én enhed åbnes – resten forbliver uåbnet */
         o.qty-=1;
-        S.items.push({id:(a.id||String(at))+'o',name:o.name,qty:1,unit:o.unit,expiry:o.expiry,mode:o.mode,category:o.category,opened:od,openDays:ds});
+        S.items.push({id:(a.id||String(at))+'o',name:o.name,qty:1,unit:o.unit,expiry:o.expiry,mode:o.mode,category:o.category,added:o.added,opened:od,openDays:ds});
       }else{
         o.opened=od;if(ds)o.openDays=ds;if(!od)o.openDays=null;
       }
@@ -341,6 +353,12 @@ function reduce(S,a){
       var sd=findItem(a.itemId);if(!sd)break;
       sd.openDays=Math.max(1,Math.min(365,Math.round(+a.days)||1));setPref(sd.name,{openDays:sd.openDays});
       break;}
+    case 'setSetting':
+      if(a.key==='zip')S.settings.zip=/^\d{4}$/.test(a.value||'')?a.value:null;
+      break;
+    case 'setPriceChoice':
+      if(a.name){var pk2=key(a.name);if(a.pick)S.priceChoice[pk2]=String(a.pick).slice(0,80);else delete S.priceChoice[pk2]}
+      break;
     case 'deleteItem':
       S.items=S.items.filter(function(i){return i.id!==a.itemId});
       break;
@@ -379,7 +397,7 @@ function reduce(S,a){
       done.forEach(function(s){
         var p=S.prefs[key(s.name)]||{}, md=modeOf(S,s.name), q=s.qty, un=s.unit;
         if(s.unit==='pakke'&&md==='whole'){q=s.qty*(p.pack||1);un=p.unit||'stk'}
-        S.items.push({id:s.id+'f',name:s.name,qty:q,unit:un,expiry:null,mode:md,category:catOf(S,s.name)});
+        S.items.push({id:s.id+'f',name:s.name,qty:q,unit:un,expiry:null,mode:md,category:catOf(S,s.name),added:day});
       });
       S.shopping=S.shopping.filter(function(s){return !s.done});
       if(S.shopper&&!openCount())S.shopper=null;
@@ -402,6 +420,7 @@ const daysUntil=s=>{const[y,m,d]=s.split('-').map(Number);const n=new Date();n.s
 const MON=['jan','feb','mar','apr','maj','jun','jul','aug','sep','okt','nov','dec'];
 const fmtDate=s=>{const[,m,d]=s.split('-').map(Number);return d+'. '+MON[m-1]};
 const hhmm=ts=>{const d=new Date(ts);return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')};
+const dayTxt=d=>{const n=-daysUntil(d);return n===0?'i dag':n===1?'i går':fmtDate(d)};
 const when=ts=>iso(new Date(ts))===today()?'kl. '+hhmm(ts):fmtDate(iso(new Date(ts)));
 const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const $=id=>document.getElementById(id);
@@ -434,6 +453,12 @@ const persist=()=>{LS.set('kb-state',S);LS.set('kb-pending',pending)};
 let demoSrv=null;
 function demoApi(path,body){
   if(!demoSrv)demoSrv=LS.get('kb-demo-srv',null)||demoSeed();
+  if(path==='/api/prices'){
+    const ex={'mælk':[{id:'o:d1',title:'Arla Lærkevang letmælk',info:'1 liter',price:11,pre:13.95,shop:'føtex',till:addDays(4)}],'æg':[{id:'o:d2',title:'Danæg skrabeæg',info:'10 stk',price:22,pre:28,shop:'Bilka',till:addDays(3)}],'smør':[{id:'o:d3',title:'Lurpak smør',info:'200 g',price:18,pre:24.95,shop:'Bilka',till:addDays(5)}]};
+    const items={};(body.names||[]).forEach(n=>{const k=n.toLowerCase(),h=[...k].reduce((a,c)=>a+c.charCodeAt(0),0);
+      items[k]={offers:Object.keys(ex).filter(x=>k.endsWith(x)).flatMap(x=>ex[x]),normal:[{id:'n:'+k,title:n+' (eksempel)',info:'',price:8+h%30+.95}]}});
+    return {items,waste:[],status:{tjek:'ok',salling:'ok',waste:'ok'},demo:true};
+  }
   if(path.indexOf('/api/barcode')===0){const c=path.split('code=')[1];return {code:c,name:demoSrv.barcodes&&demoSrv.barcodes[c]||null,source:demoSrv.barcodes&&demoSrv.barcodes[c]?'own':'none'}}
   if(path==='/api/action'){const msgs=reduce(demoSrv,body.action);LS.set('kb-demo-srv',demoSrv);
     setTimeout(()=>msgs.forEach(m=>{if(m.to!=='other')return;toast('🔔 Til '+uname(other())+': '+m.title,m.body)}),900)}
@@ -443,6 +468,7 @@ function demoSeed(){
   const S0=emptyState(),now=Date.now();
   [['Mælk',2,'stk',3,'unit','Mejeri'],['Æg',6,'stk',12,'whole',null],['Smør',1,'stk',21,'unit','Mejeri'],['Yoghurt',1,'stk',1,'unit','Mejeri'],['Spegepølse',1,'pk',0,'unit','Pålæg'],['Agurk',1,'stk',-1,'unit','Grøntsager'],['Skiveost',1,'pk',14,'unit','Mejeri'],['Remoulade',1,'stk',30,'unit','Dressing'],['Æbler',4,'stk',6,'unit','Frugt']]
     .forEach(([name,qty,unit,d,mode,category],i)=>reduce(S0,{type:'addItem',id:'d'+i,at:now,by:0,item:{id:'d'+i,name,qty,unit,expiry:d==null?null:addDays(d),mode,category}}));
+  S0.items.forEach((it,i)=>it.added=addDays(-(i%5)-1));
   reduce(S0,{type:'addItem',id:'d9',at:now,by:0,item:{id:'d9',name:'Leverpostej',qty:1,unit:'stk',expiry:addDays(9),mode:'unit',category:'Pålæg'}});
   reduce(S0,{type:'markOpened',id:'o1',at:now,by:0,itemId:'d9',date:addDays(-2),days:3});
   reduce(S0,{type:'markOpened',id:'o2',at:now,by:0,itemId:'d7',date:addDays(-12),days:30});
@@ -460,7 +486,7 @@ async function api(path,body){
 function setOnline(v){if(online!==v){online=v;renderSafe()}}
 
 function act(type,payload){
-  const a=Object.assign({type,id:uid(),by:me(),at:Date.now()},payload||{});
+  const a=Object.assign({type,id:uid(),by:me(),at:Date.now(),day:today()},payload||{});
   reduce(S,a);pending.push(a);persist();render();flush();return a;
 }
 let flushing=false;
@@ -675,7 +701,7 @@ function renderFridge(){
     const row=it=>{const st=status(it);
       return `<button class="row" onclick="openItem('${esc(it.id)}')">
       <span class="dot ${st.cls}"></span>
-      <span class="grow"><div class="name">${esc(it.name)}</div><div class="meta">${it.qty} ${esc(it.unit)}${it.opened?' · åbnet '+(it.opened===today()?'i dag':fmtDate(it.opened)):''}</div>
+      <span class="grow"><div class="name">${esc(it.name)}</div><div class="meta">${it.qty} ${esc(it.unit)}${it.opened?' · åbnet '+dayTxt(it.opened):it.added?' · købt '+dayTxt(it.added):''}</div>
         ${st.open&&st.open.days?`<div class="obar"><i style="width:${Math.max(4,st.open.frac*100)}%;background:${st.open.color}"></i></div>`:''}</span>
       <span class="${it.expiry||st.open?'chip '+st.chip:'newchip'}">${it.expiry||st.open?st.label:'Sæt dato'}</span></button>`};
     const cats=S.categories||[];
@@ -702,7 +728,7 @@ function openItem(id,keepN){
       <button class="btn" onclick="useUp('${E}',false)">${lbl}</button>
       <button class="btn danger" onclick="discard('${E}')">${all?'Smidt ud':'Smidt '+used+' '+esc(it.unit)+' ud'}</button>`;
   }
-  openSheet(`<h2>${esc(it.name)}</h2><div class="meta">${it.qty} ${esc(it.unit)} i køleskabet · ${it.expiry?'udløber '+fmtDate(it.expiry)+(daysUntil(it.expiry)<=3?' ('+expStatus(it).label.toLowerCase()+')':''):'ingen udløbsdato'}</div>
+  openSheet(`<h2>${esc(it.name)}</h2><div class="meta">${it.qty} ${esc(it.unit)} i køleskabet${it.added?' · købt '+dayTxt(it.added)+(-daysUntil(it.added)>1?' ('+(-daysUntil(it.added))+' dage siden)':''):''} · ${it.expiry?'udløber '+fmtDate(it.expiry)+(daysUntil(it.expiry)<=3?' ('+expStatus(it).label.toLowerCase()+')':''):'ingen udløbsdato'}</div>
     ${many?`<div class="field" style="margin-top:0"><label>Hvor mange er brugt?</label>
       <div class="stepper"><button onclick="useN('${E}',-1)">−</button><span>${used} af ${it.qty} ${esc(it.unit)}</span><button onclick="useN('${E}',1)">+</button></div>
       <div class="chips" style="justify-content:center"><button onclick="used=${it.qty};openItem('${E}',true)" class="${all?'on':''}">Alle ${it.qty}</button></div></div>`:''}
@@ -716,6 +742,7 @@ function openItem(id,keepN){
         <input type="date" value="${esc(it.expiry||'')}" onchange="act('editItem',{itemId:'${E}',expiry:this.value||null});openItem('${E}',true)"></div>
     </div>
     <div class="chips" style="justify-content:center;margin-top:10px">${[[2,'+2 dage'],[4,'+4 dage'],[7,'+1 uge'],[14,'+2 uger']].map(([n,l])=>`<button onclick="act('editItem',{itemId:'${E}',expiry:addDays(${n})});openItem('${E}',true)">${l}</button>`).join('')}</div>
+    <div class="field"><label>Købt / lagt i køleskabet</label><input type="date" value="${esc(it.added||'')}" max="${today()}" onchange="act('editItem',{itemId:'${E}',added:this.value||null});openItem('${E}',true)"></div>
     <div class="field"><label>Kategori</label><div class="chips" style="margin-top:0">${catChips(it.category,'itemPick')}</div>${newCatBox()}</div>
     <div class="field"><label>Genbestilling</label>
       <div class="seg"><button class="${whole?'':'on'}" onclick="act('editItem',{itemId:'${E}',mode:'unit'});openItem('${E}',true)">For hver enhed</button><button class="${whole?'on':''}" onclick="act('editItem',{itemId:'${E}',mode:'whole'});openItem('${E}',true)">Når alle er brugt</button></div></div>
@@ -830,6 +857,67 @@ function dq(d){draft.qty=Math.max(1,draft.qty+d);$('aq').textContent=draft.qty}
 function quick(n){draft.expiry=n?addDays(n):null;$('ae').value=draft.expiry||'';markQuick(n)}
 function markQuick(n){document.querySelectorAll('#qc button').forEach(b=>b.classList.toggle('on',n!==null&&+b.dataset.n===n))}
 function markMode(){const m=draft.mode||modeOf(S,($('an')||{}).value||'');document.querySelectorAll('#am button').forEach(b=>b.classList.toggle('on',b.dataset.m===m))}
+/* ---------- prisestimat ---------- */
+let PR=null, prOpen=null, prLoading=false;
+const kr=n=>(Math.round(n*100)/100).toFixed(2).replace('.',',')+' kr';
+const pkey=n=>String(n).trim().toLowerCase();
+async function openPrices(){
+  const open=S.shopping.filter(x=>!x.done);if(!open.length)return;
+  PR={items:{},waste:[],status:{},done:0,total:open.length};prOpen=null;prLoading=true;drawPrices();
+  const names=[...new Set(open.map(x=>x.name))];
+  for(let i=0;i<names.length;i+=8){
+    try{
+      const r=await api('/api/prices',{names:names.slice(i,i+8),zip:S.settings&&S.settings.zip});
+      Object.assign(PR.items,r.items||{});PR.waste=PR.waste.concat(r.waste||[]);
+      for(const k in (r.status||{}))if(!PR.status[k]||PR.status[k]==='ok')PR.status[k]=r.status[k];
+      if(r.demo)PR.demo=true;
+    }catch(e){PR.error=e.message||'Ingen forbindelse';break}
+    PR.done=Math.min(names.length,i+8);if(prVisible())drawPrices();
+  }
+  prLoading=false;if(prVisible())drawPrices();
+}
+const prVisible=()=>$('sheet').classList.contains('on')&&!!$('prbody');
+function candidates(name){const r=PR&&PR.items[pkey(name)];return r?[...(r.offers||[]),...(r.normal||[])]:[]}
+function chosen(name){
+  const c=candidates(name),ch=S.priceChoice&&S.priceChoice[pkey(name)];
+  if(ch==='none')return null;
+  return (ch&&c.find(x=>x.id===ch))||c[0]||null;
+}
+function drawPrices(){
+  const open=S.shopping.filter(x=>!x.done);
+  let total=0,priced=0,onOffer=0,saved=0;
+  const rows=open.map(s=>{
+    const c=chosen(s.name),k=pkey(s.name),isOffer=c&&c.id.startsWith('o:');
+    if(c){const t=c.price*s.qty;total+=t;priced++;if(isOffer){onOffer++;if(c.pre)saved+=(c.pre-c.price)*s.qty}}
+    const loaded=PR.items[k]!==undefined;
+    const badge=!loaded?'<span class="chip">Henter…</span>':c?(isOffer?`<span class="chip ok">Tilbud · ${esc(c.shop||'')}</span>`:'<span class="chip">Normalpris</span>'):'<span class="chip">Ingen pris</span>';
+    const alts=prOpen===k?`<div class="alts">${candidates(s.name).map(x=>`<button class="${c&&c.id===x.id?'on':''}" onclick="pickPrice('${esc(k)}','${esc(x.id)}')">
+        <span class="grow"><b>${esc(x.title)}</b><small>${x.id.startsWith('o:')?'Tilbud · '+esc(x.shop||'')+(x.till?' · til '+fmtDate(iso(new Date(x.till))):'')+(x.pre?' · før '+kr(x.pre):''):'Normalpris · Bilka ToGo'}${x.info&&x.id.startsWith('o:')?' · '+esc(x.info):''}</small></span><span class="p">${kr(x.price)}</span></button>`).join('')||'<div class="meta" style="padding:10px 4px">Intet fundet hos Bilka eller føtex.</div>'}
+      <button onclick="pickPrice('${esc(k)}','none')" class="${S.priceChoice&&S.priceChoice[k]==='none'?'on':''}"><span class="grow"><b>Tæl ikke med</b><small>Fx hvis I allerede har en pris i hovedet</small></span></button></div>`:'';
+    return `<div class="prow"><button class="row" onclick="prOpen=prOpen==='${esc(k)}'?null:'${esc(k)}';drawPrices()">
+      <span class="grow"><div class="name">${esc(s.name)} <span style="font-weight:500;color:var(--muted)">× ${s.qty}${s.unit==='pakke'?' pk':''}</span></div><div class="meta">${c?esc(c.title):loaded?'Tryk for at se muligheder':''}</div>${badge}</span>
+      <span class="p">${c?kr(c.price*s.qty):'–'}</span></button>${alts}</div>`;
+  }).join('');
+  const st=PR.status||{},notes=[];
+  if(PR.demo)notes.push('Demo: priserne her er eksempler. I den rigtige app hentes de fra Tjek og Salling Group.');
+  if(PR.error)notes.push('Kunne ikke hente priser: '+esc(PR.error));
+  if(st.tjek&&st.tjek!=='ok')notes.push('Tilbud kunne ikke hentes ('+esc(st.tjek)+').');
+  if(st.salling==='mangler-nøgle')notes.push('Normalpriser og nedsatte varer kræver en gratis nøgle fra Salling Group (se guiden). Lige nu vises kun tilbud.');
+  else if(st.salling&&st.salling!=='ok')notes.push('Normalpriser kunne ikke hentes ('+esc(st.salling)+').');
+  const W=(PR.waste||[]);
+  const wasteHtml=W.length?`<div class="section-title">Nedsat lige nu i nærheden</div><div class="list">${W.map(w=>`<div class="row"><span class="grow"><div class="name">${esc(w.desc||'')}</div><div class="meta">${esc(w.store||'')}${w.stock?' · '+w.stock+' tilbage':''}${w.end?' · til '+when(Date.parse(w.end)):''}</div><span class="chip warn">For ${esc(w.for)}</span></span><span class="p">${kr(w.newPrice)}<small>før ${kr(w.originalPrice)}</small></span></div>`).join('')}</div>`:
+    (S.settings&&S.settings.zip?'':`<div class="note">Skriv jeres postnummer under <b>Os to</b>, så viser appen også varer fra listen, der er sat ned, fordi de snart udløber, i Bilka og føtex i nærheden.</div>`);
+  const html=`<h2>Prisestimat</h2><div class="meta">Bilka og føtex · tilbud fra denne uges aviser, ellers normalpris</div>
+    <div class="ptotal"><div><small>Indkøbet koster ca.</small><b>${kr(total)}</b></div><div class="pside">${priced} af ${open.length} varer har en pris${onOffer?'<br>'+onOffer+' på tilbud':''}${saved>0?'<br>sparer ca. '+kr(saved):''}</div></div>
+    ${prLoading?`<div class="meta" style="margin:-4px 2px 10px">Henter priser … ${PR.done} af ${new Set(open.map(x=>x.name)).size}</div>`:''}
+    ${notes.map(n=>`<div class="note" style="margin:0 0 10px">${n}</div>`).join('')}
+    <div class="list" id="prbody">${rows}</div>
+    <div class="meta" style="margin:8px 2px 0;font-size:13px">Tryk på en vare for at vælge et andet produkt. Valget huskes. Priserne er et skøn – nogle tilbud kræver medlemskab eller køb af flere.</div>
+    ${wasteHtml}`;
+  openSheet(html);
+}
+function pickPrice(k,id){act('setPriceChoice',{name:k,pick:id});prOpen=null;drawPrices()}
+
 /* ---------- kategorier ---------- */
 let newCatFor='add';
 function catChips(sel,pick){return (S.categories||[]).map((c,i)=>`<button class="${c===sel?'on':''}" onclick="${pick}(${i})">${esc(c)}</button>`).join('')+`<button class="addc" onclick="showNewCat()">+ Ny kategori</button>`}
@@ -926,6 +1014,7 @@ function renderShop(){
     h+='<div class="section-title">I kurven</div><div class="list">'+done.map(row).join('')+'</div>';
     h+=`<button class="btn primary" style="margin-top:14px" onclick="finish()">Læg ${done.length} ${done.length===1?'vare':'varer'} i køleskabet</button>`;
   }
+  if(open.length)h+=`<button class="btn soft scanbtn" style="margin-top:14px" onclick="openPrices()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>Beregn pris · Bilka og føtex</button>`;
   if(!open.length&&!done.length)h+='<div class="empty"><b>Listen er tom</b>Når en vare er opbrugt og genbestilt, dukker den op her.</div>';
   if(S.activity.length)h+='<div class="section-title">Seneste</div><div class="list feed">'+S.activity.slice(0,8).map(a=>`<div><time>${when(a.at)}</time><b>${esc(uname(a.who))}</b> ${esc(a.text)}</div>`).join('')+'</div>';
   $('main').innerHTML=h;
@@ -956,6 +1045,9 @@ function renderUs(){
     ${st==='off'||st==='granted'?'<button class="btn primary" style="margin-top:10px" onclick="enablePush()">Slå notifikationer til</button>':''}
     ${st==='on'?'<button class="btn soft" style="margin-top:10px" onclick="testPush()">Send en test til mig selv</button>':''}
     <div class="note">Du får besked, når ${esc(uname(other()))} bruger en vare op, sætter noget på listen eller tager indkøbet. I får begge en besked om morgenen, hvis noget udløber i dag eller i morgen.</div>
+    <div class="section-title">Postnummer</div>
+    <form class="addbar" style="margin-top:0" onsubmit="event.preventDefault();act('setSetting',{key:'zip',value:$('uzip').value.trim()});toast('Postnummer gemt')"><input id="uzip" inputmode="numeric" maxlength="4" placeholder="Fx 8000" value="${esc((S.settings&&S.settings.zip)||'')}"><button>Gem</button></form>
+    <div class="note">Bruges til at finde nedsatte varer i Bilka og føtex i nærheden, når I beregner prisen på indkøbslisten.</div>
     <div class="section-title">Historik</div>
     <div class="list"><button class="row" onclick="openWaste()"><span class="grow"><div class="name">Kasserede varer</div><div class="meta">${(S.waste||[]).length?(S.waste||[]).length+' registreringer':'Intet smidt ud endnu'}</div></span><span class="chip">Se liste ›</span></button></div>
     <div class="section-title">Kategorier i køleskabet</div>
