@@ -127,6 +127,7 @@ nav svg{width:26px;height:26px}
 .psearch button{padding:0 14px;border-radius:12px;background:var(--accent);color:#fff;font-weight:650}
 .chip.ai{background:#efe7fb;color:#6a3fb5}
 .aiwhy{font-size:13.5px;color:#6a3fb5;background:#f5effd;border-radius:10px;padding:8px 10px}
+.rawout{white-space:pre-wrap;word-break:break-all;font:12px/1.4 ui-monospace,Menlo,monospace;background:#fff;border:1px solid var(--line);border-radius:12px;padding:10px;margin-top:8px;max-height:320px;overflow:auto;user-select:text;-webkit-user-select:text}
 .grab{width:40px;height:5px;border-radius:3px;background:#d6d1c8;margin:0 auto 14px}
 .sheet h2{margin:0 0 2px;font-size:24px;letter-spacing:-.02em}
 .sheet .meta{margin-bottom:16px}
@@ -502,7 +503,7 @@ async function api(path,body){
   if(cfg.api==='demo')return demoApi(path,body);
   const r=await fetch(cfg.api.replace(/\/+$/,'')+path,{method:body?'POST':'GET',headers:{'x-key':cfg.key,'content-type':'application/json'},body:body?JSON.stringify(body):undefined,cache:'no-store'});
   let d={};try{d=await r.json()}catch(e){}
-  if(!r.ok){const e=new Error(d.error||('Serverfejl '+r.status));e.status=r.status;throw e}
+  if(!r.ok){const e=new Error(d.error||d.errorMessage||d.message||('Serverfejl '+r.status));e.status=r.status;e.body=d;throw e}
   return d;
 }
 function setOnline(v){if(online!==v){online=v;renderSafe()}}
@@ -1175,6 +1176,14 @@ async function manualSearch(k){
   let nor=[];try{nor=(await normalPrices(q)).list}catch(e){}
   r.manual=[...off,...nor];drawPrices();
 }
+async function rawSalling(){
+  const q=$('rawq').value.trim()||'havredrik',out=$('rawout');out.hidden=false;out.textContent='Spørger Bilka ToGo …';
+  const url=cfg.api.replace(/\/+$/,'')+'/api/salling?p='+encodeURIComponent('/v1/product-suggestions/relevant-products?query='+encodeURIComponent(q));
+  try{const r=await fetch(url,{headers:{'x-key':cfg.key},cache:'no-store'});const t=await r.text();
+    let n='?';try{const d=JSON.parse(t);const a=Array.isArray(d)?d:(d.suggestions||d.products||d.results||d.items||d.data||[]);n=a.length}catch(e){}
+    out.textContent='Status: '+r.status+' · antal produkter fundet: '+n+'\n\n'+t.slice(0,1500);
+  }catch(e){out.textContent='Fejl: '+e.message}
+}
 async function checkSalling(btn){
   btn.textContent='Tjekker …';
   try{const r=await api('/api/salling-check');
@@ -1312,6 +1321,8 @@ function renderUs(){
     <div class="section-title">Priser</div>
     <div class="note" style="margin-top:0">Tilbud fra Bilka og føtex virker uden opsætning. <b>Normalpriser og nedsatte varer</b> kræver en gratis nøgle fra Salling Group, som lægges på serveren som <code>SALLING_TOKEN</code> (se guiden i projektet).</div>
     <button class="btn soft" style="margin-top:10px" onclick="checkSalling(this)">Tjek om Salling-nøglen virker</button>
+    <form class="psearch" style="margin-top:10px" onsubmit="event.preventDefault();rawSalling()"><input id="rawq" placeholder="Test Bilka ToGo-søgning, fx havredrik" autocomplete="off"><button>Test</button></form>
+    <pre id="rawout" class="rawout" hidden></pre>
     <div class="section-title">Postnummer</div>
     <form class="addbar" style="margin-top:0" onsubmit="event.preventDefault();act('setSetting',{key:'zip',value:$('uzip').value.trim()});toast('Postnummer gemt')"><input id="uzip" inputmode="numeric" maxlength="4" placeholder="Fx 8000" value="${esc((S.settings&&S.settings.zip)||'')}"><button>Gem</button></form>
     <div class="note">Bruges til at finde nedsatte varer i Bilka og føtex i nærheden, når I beregner prisen på indkøbslisten.</div>
