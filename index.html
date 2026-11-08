@@ -1001,14 +1001,29 @@ function rank(name,pool){
   return pool.filter(o=>!isNonFood(o.h+' '+o.d)).map(o=>({...o,score:Math.max(...qs.map(q=>Math.max(pscore(q,o.h),.85*pscore(q,o.h+' '+o.d))))}))
     .filter(o=>o.score>=.45).sort((a,b)=>b.score-a.score||a.p-b.p);
 }
+/* Sallings produktsøgning har en hastighedsgrænse: én ad gangen, lille pause, og nye forsøg ved 429 */
+let salChain=Promise.resolve(),salBusy=false;
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+function salQueued(path){
+  const run=async()=>{
+    for(let a=0;a<3;a++){
+      try{const d=await sal(path);await sleep(250);return d}
+      catch(e){
+        if(e.status===404&&path.indexOf('/v1/')===0){path=path.replace('/v1/','/v1-beta/');continue}
+        if(e.status!==429||a===2){if(e.status===429)salBusy=true;throw e}
+        await sleep(1500*(a+1));
+      }
+    }
+  };
+  const p=salChain.then(run,run);salChain=p.catch(()=>{});return p;
+}
 /* dagens svar gemmes på telefonen, så samme liste giver samme resultat hele dagen */
 function pcache(){let c=LS.get('kb-pcache',null);if(!c||c.day!==today())c={day:today(),norm:{}};return c}
 async function normalRaw(name){
   const c=pcache(),key=pkey(name);
   if(c.norm[key])return c.norm[key];
-  let d;
-  try{d=await sal('/v1/product-suggestions/relevant-products?query='+encodeURIComponent(name))}
-  catch(e){if(e.status===404)d=await sal('/v1-beta/product-suggestions/relevant-products?query='+encodeURIComponent(name));else throw e}
+  if(salBusy){const e=new Error('Bilka ToGo har for travlt lige nu (429)');e.status=429;throw e}
+  const d=await salQueued('/v1/product-suggestions/relevant-products?query='+encodeURIComponent(name));
   const arr=Array.isArray(d)?d:(d.suggestions||d.products||d.results||d.items||d.data||[]);
   const slim=arr.slice(0,25).map(x=>({title:x.title,name:x.name,productName:x.productName,description:x.description,subtitle:x.subtitle,price:x.price,salesPrice:x.salesPrice,currentPrice:x.currentPrice,prod_id:x.prod_id,productId:x.productId,id:x.id,ean:x.ean}));
   const c2=pcache();c2.norm[key]=slim;LS.set('kb-pcache',c2);
@@ -1029,6 +1044,7 @@ async function openPrices(force){
   const open=S.shopping.filter(x=>!x.done);if(!open.length)return;
   const names=[...new Set(open.map(x=>x.name))];
   PR={items:{},waste:[],status:{},done:0,total:names.length,offers:null,pool:[]};prOpen=null;prLoading=true;drawPrices();
+  salBusy=false;
   if(force){LS.del('kb-pcache');act('aiForget',{names:names.map(pkey)})}
   let O=null;
   try{O=await loadOffers(force);PR.offers={counts:O.counts,mode:O.mode,n:O.list.length};PR.pool=O.mode==='avis'?O.list:[]}catch(e){PR.status.tjek=e.message||'fejl'}
@@ -1053,7 +1069,7 @@ async function openPrices(force){
       /* hvis I tidligere har valgt et bestemt tilbud, find det igen i denne uges avis */
       const ch=pickOf(k);
       if(ch&&ch.startsWith('h:')&&pool.length&&!it.offers.some(o=>o.hk===ch)){const f=pool.find(o=>headKey(o.h)===ch);if(f)it.offers.unshift({id:'o:'+f.id,hk:ch,title:f.h,info:f.d,price:f.p,pre:f.pp,shop:f.s,till:f.t,from:f.f})}
-      if(salOk){try{let np=await normalPrices(q);for(const v of synOf(q).slice(1)){if(np.list.length)break;const n2=await normalPrices(v);np={list:n2.list,all:[...np.all,...n2.all].slice(0,6),raw:np.raw+n2.raw}}it.normal=np.list;it.normRaw=np.raw;it.normAll=np.all}catch(e){if(e.status===412){salOk=false;PR.status.salling='mangler-nøgle'}else PR.status.salling=e.message||'fejl'}}
+      if(salOk){try{let np=await normalPrices(q);for(const v of synOf(q).slice(1)){if(np.list.length)break;const n2=await normalPrices(v);np={list:n2.list,all:[...np.all,...n2.all].slice(0,6),raw:np.raw+n2.raw}}it.normal=np.list;it.normRaw=np.raw;it.normAll=np.all}catch(e){if(e.status===412){salOk=false;PR.status.salling='mangler-nøgle'}else PR.status.salling=e.status===429?'Bilka ToGo bremser lige nu (for mange opslag på kort tid) – normalpriser mangler for nogle varer. Prøv igen om et par minutter; allerede hentede priser huskes.':(e.message||'fejl')}}
       PR.items[k]=it;
     }));
     PR.done=Math.min(names.length,i+4);if(prVisible())drawPrices();
@@ -1147,7 +1163,7 @@ function drawPrices(){
   if(PR.offers){const o=PR.offers;notes.push(o.mode==='avis'?`Denne uges tilbud indlæst: ${Object.entries(o.counts).map(([a,b])=>esc(a)+' '+b).join(' · ')||'–'}. <a href="#" onclick="event.preventDefault();openPrices(true)">Hent igen</a>`:'Kunne ikke hente hele avisen – søger i stedet vare for vare (færre fund).')}
   if(st.tjek)notes.push('Tilbud kunne ikke hentes: '+esc(st.tjek));
   if(st.salling==='mangler-nøgle')notes.push('<b>Normalpriser mangler:</b> serveren har ingen Salling-nøgle endnu. Se guiden under Os to → Priser.');
-  else if(st.salling)notes.push('Normalpriser kunne ikke hentes: '+esc(st.salling));
+  else if(st.salling)notes.push(st.salling.indexOf('Bilka ToGo bremser')===0?esc(st.salling):'Normalpriser kunne ikke hentes: '+esc(st.salling));
   if(st.waste)notes.push('Nedsatte varer kunne ikke hentes: '+esc(st.waste));
   if(PR.ai==='kører')notes.push('✦ AI vælger de bedste varer …');
   else if(PR.ai==='slået-fra')notes.push('AI er ikke slået til endnu: tilføj en Workers AI-binding med navnet <b>AI</b> i Cloudflare (se guiden). Indtil da bruges den almindelige matchning.');
@@ -1187,7 +1203,7 @@ async function rawSalling(){
 async function checkSalling(btn){
   btn.textContent='Tjekker …';
   try{const r=await api('/api/salling-check');
-    btn.textContent=r.ok?'✓ Salling-nøglen virker':r.reason?r.reason:'Ikke helt: produktforslag svarer '+r.productSuggestions+', nedsatte varer svarer '+r.foodWaste+' (401/403 = nøglen afvist eller API ikke valgt i projektet)';
+    btn.textContent=r.ok?'✓ Salling-nøglen virker':r.productSuggestions===429&&r.foodWaste===200?'✓ Nøglen virker – men Bilka ToGo bremser lige nu (429). Vent et par minutter.':r.reason?r.reason:'Ikke helt: produktforslag svarer '+r.productSuggestions+', nedsatte varer svarer '+r.foodWaste+' (401/403 = nøglen afvist eller API ikke valgt i projektet)';
   }catch(e){btn.textContent='Kunne ikke tjekke: '+e.message}
 }
 
