@@ -362,7 +362,7 @@ function reduce(S,a){
       break;
     case 'aiMemo':{
       S.aiMemo=S.aiMemo||{};var mm=a.memos||{};
-      for(var mk in mm){var v=mm[mk]||{};S.aiMemo[String(mk).slice(0,80)]={q:String(v.q||'').slice(0,80),id:v.id?String(v.id).slice(0,120):null,none:!!v.none,n:Math.max(1,Math.min(50,+v.n||1)),why:String(v.why||'').slice(0,140)}}
+      for(var mk in mm){var v=mm[mk]||{};S.aiMemo[String(mk).slice(0,80)]={v:+v.v||1,q:String(v.q||'').slice(0,80),id:v.id?String(v.id).slice(0,120):null,none:!!v.none,n:Math.max(1,Math.min(50,+v.n||1)),why:String(v.why||'').slice(0,140)}}
       var mks=Object.keys(S.aiMemo);if(mks.length>400)delete S.aiMemo[mks[0]];
       break;}
     case 'aiForget':
@@ -896,6 +896,27 @@ function lev1(a,b){if(a===b)return true;const la=a.length,lb=b.length;if(Math.ab
 /* varer der aldrig er madvarer – så "linser" ikke bliver til et kamera */
 const NONFOOD=['kamera','instax','printer','fjernsyn','mobil','iphone','høretelefon','headset','t-shirt','jakke','bukser','sko','støvler','legetøj','lego','støvsuger','pande','gryde','kniv','lampe','pære','batteri','cykel','dyne','pude','håndklæde','sengetøj','parfume','neglelak','playstation','xbox','nintendo','smykke','kaffemaskine','blender','airfryer','grill','objektiv','fotopapir','film','tablet','computer','skærm','højttaler','kjole','strømper','undertøj','trusser','bh'];
 const isNonFood=txt=>{const T=String(txt||'').toLowerCase().replace(/[^a-zæøåäöüé0-9 -]+/g,' ').split(/\s+/);return T.some(t=>NONFOOD.some(n=>t===n||(n.length>=5&&t.endsWith(n))))};
+/* synonymer: det man skriver på listen ↔ det butikken kalder varen */
+const SYN={
+  'havremælk':['havredrik','havre drik','oatly'],'havredrik':['havremælk','oatly'],
+  'sojamælk':['sojadrik'],'sojadrik':['sojamælk'],'mandelmælk':['mandeldrik'],'mandeldrik':['mandelmælk'],
+  'rismælk':['risdrik'],'plantemælk':['havredrik','sojadrik','mandeldrik','plantedrik'],'plantedrik':['havredrik','sojadrik','mandeldrik'],
+  'humus':['hummus'],'hummus':['humus'],
+  'creme fraiche':['cremefraiche','crème fraîche'],'cremefraiche':['creme fraiche','crème fraîche'],
+  'hakket tomat':['hakkede tomater','flåede tomater'],'hakkede tomater':['hakket tomat'],
+  'linser':['røde linser','grønne linser','beluga linser'],
+  'kokosmælk':['coconut milk','kokos mælk'],
+  'toiletpapir':['toiletruller'],'køkkenrulle':['køkkenruller','køkkenpapir'],'køkkenruller':['køkkenrulle','køkkenpapir'],
+  'opvasketabs':['opvasketabletter','maskinopvask'],'opvasketabletter':['opvasketabs','maskinopvask'],
+  'vaskepulver':['vaskemiddel'],'vaskemiddel':['vaskepulver','flydende vaskemiddel'],
+  'danskvand':['kildevand med brus','mineralvand'],'sodavand':['læskedrik'],
+  'kartofler':['kartoffel'],'løg':['gule løg','rødløg'],'porre':['porrer'],'gulerødder':['gulerod'],
+  'pålægschokolade':['pålægs chokolade'],'smøreost':['flødeost'],'flødeost':['smøreost'],
+  'hakket kød':['hakket oksekød','hakket grisekød','hakket svinekød'],'fars':['hakket oksekød','hakket grisekød'],
+  'kyllingefilet':['kyllingebryst','kyllingebrystfilet'],'kyllingebryst':['kyllingebrystfilet','kyllingefilet'],
+  'bacon':['bacon i skiver','baconterninger'],'spaghetti':['pasta spaghetti'],
+};
+const synOf=q=>{const k=String(q||'').trim().toLowerCase();return [q,...(SYN[k]||[])]};
 /* "2x hakket tomat" → antal 2, "linser til daal" → "linser" */
 function prepName(name){
   let n=String(name||'').trim(),mult=1,m;
@@ -965,7 +986,7 @@ async function loadOffers(force){
 }
 async function searchOffers(name){
   const t=ptoks(name);
-  const qs=[...new Set([name.trim(),t.join(' '),t.map(pstem).join(' '),t[t.length-1]].filter(Boolean))];
+  const qs=[...new Set([name.trim(),...synOf(name.trim()).slice(1),t.join(' '),t.map(pstem).join(' '),t[t.length-1]].filter(Boolean))];
   const out=[],seen=new Set();
   for(const q of qs){
     try{const arr=await tj('/v2/offers/search?query='+encodeURIComponent(q)+'&limit=100');
@@ -975,7 +996,8 @@ async function searchOffers(name){
   return out;
 }
 function rank(name,pool){
-  return pool.filter(o=>!isNonFood(o.h+' '+o.d)).map(o=>({...o,score:Math.max(pscore(name,o.h),.85*pscore(name,o.h+' '+o.d))}))
+  const qs=synOf(name);
+  return pool.filter(o=>!isNonFood(o.h+' '+o.d)).map(o=>({...o,score:Math.max(...qs.map(q=>Math.max(pscore(q,o.h),.85*pscore(q,o.h+' '+o.d))))}))
     .filter(o=>o.score>=.45).sort((a,b)=>b.score-a.score||a.p-b.p);
 }
 /* dagens svar gemmes på telefonen, så samme liste giver samme resultat hele dagen */
@@ -1024,12 +1046,13 @@ async function openPrices(force){
       it.near=r.filter(o=>o.score<.75).slice(0,3).map(o=>({id:'o:'+o.id,hk:headKey(o.h),title:o.h,info:o.d,price:o.p,pre:o.pp,shop:o.s,till:o.t,from:o.f,near:true}));
       /* kandidater til AI: de bedste ord-match + løse ligheder */
       const seenC=new Set(r.slice(0,8).map(o=>o.id));
-      const lo=pool.filter(o=>!seenC.has(o.id)&&!isNonFood(o.h+' '+o.d)).map(o=>({o,l:loose(q,o.h)})).filter(x=>x.l>=.5).sort((a,b)=>b.l-a.l||a.o.p-b.o.p).slice(0,6).map(x=>x.o);
+      const qv=synOf(q);
+      const lo=pool.filter(o=>!seenC.has(o.id)&&!isNonFood(o.h+' '+o.d)).map(o=>({o,l:Math.max(...qv.map(v=>loose(v,o.h))),s:Math.max(...qv.map(v=>pscore(v,o.h+' '+o.d)))})).filter(x=>x.l>=.5).sort((a,b)=>b.s-a.s||b.l-a.l||a.o.p-b.o.p).slice(0,6).map(x=>x.o);
       it.aiOffers=[...r.slice(0,8),...lo].map(o=>({id:'o:'+o.id,hk:headKey(o.h),title:o.h,info:o.d,price:o.p,pre:o.pp,shop:o.s,till:o.t,from:o.f}));
       /* hvis I tidligere har valgt et bestemt tilbud, find det igen i denne uges avis */
       const ch=pickOf(k);
       if(ch&&ch.startsWith('h:')&&pool.length&&!it.offers.some(o=>o.hk===ch)){const f=pool.find(o=>headKey(o.h)===ch);if(f)it.offers.unshift({id:'o:'+f.id,hk:ch,title:f.h,info:f.d,price:f.p,pre:f.pp,shop:f.s,till:f.t,from:f.f})}
-      if(salOk){try{const np=await normalPrices(q);it.normal=np.list;it.normRaw=np.raw;it.normAll=np.all}catch(e){if(e.status===412){salOk=false;PR.status.salling='mangler-nøgle'}else PR.status.salling=e.message||'fejl'}}
+      if(salOk){try{let np=await normalPrices(q);for(const v of synOf(q).slice(1)){if(np.list.length)break;const n2=await normalPrices(v);np={list:n2.list,all:[...np.all,...n2.all].slice(0,6),raw:np.raw+n2.raw}}it.normal=np.list;it.normRaw=np.raw;it.normAll=np.all}catch(e){if(e.status===412){salOk=false;PR.status.salling='mangler-nøgle'}else PR.status.salling=e.message||'fejl'}}
       PR.items[k]=it;
     }));
     PR.done=Math.min(names.length,i+4);if(prVisible())drawPrices();
@@ -1045,13 +1068,15 @@ async function openPrices(force){
   }
   prLoading=false;if(prVisible())drawPrices();
 }
+/* hæves når matchningen forbedres, så gamle AI-valg vurderes igen */
+const AIV=2;
 async function runAI(names){
   const todo=names.map(n=>{const k=pkey(n),it=PR.items[k];if(!it||pickOf(k))return null;
     const seen=new Set(),cands=[...(it.aiOffers||[]),...(it.normAll||[])].filter(c=>c&&c.price>0&&!seen.has(c.id)&&seen.add(c.id)).slice(0,15);
     it.aiCands=cands;
     /* tidligere AI-valg genbruges, så længe produktet stadig findes – samme svar hver gang, på begge telefoner */
     const m=S.aiMemo&&S.aiMemo[k];
-    if(m&&m.q===it.q){
+    if(m&&m.q===it.q&&m.v===AIV){
       if(m.none&&!cands.length){it.ai={none:true,why:m.why||''};return null}
       const c=m.id&&cands.find(x=>(x.hk||x.id)===m.id);
       if(c){it.ai={c,n:m.n||1,why:m.why||'',memo:true};return null}
@@ -1067,9 +1092,11 @@ async function runAI(names){
       const memos={};
       (r.picks||[]).forEach(pk=>{const it=PR.items[pk.k];if(!it)return;
         const why=String(pk.why||'').slice(0,140);
-        if(!pk.id||pk.id==='null'){it.ai={none:true,why};memos[pk.k]={q:it.q,none:true,why};return}
+        if(!pk.id||pk.id==='null'){it.ai={none:true,why};memos[pk.k]={q:it.q,none:true,why,v:AIV};return}
         const c=(it.aiCands||[]).find(x=>(x.hk||x.id)===pk.id);
-        if(c){const n=Math.max(1,Math.min(50,Math.round(+pk.n)||1));it.ai={c,n,why};memos[pk.k]={q:it.q,id:pk.id,n,why}}});
+        /* sikkerhedskontrol: har appen et sikkert match, skal AI'ens valg også ligne varen */
+        if(c&&(it.offers.length||it.normal.length)&&Math.max(...synOf(it.q).map(v=>pscore(v,c.title+' '+(c.info||''))))<.6)return;
+        if(c){const n=Math.max(1,Math.min(50,Math.round(+pk.n)||1));it.ai={c,n,why};memos[pk.k]={q:it.q,id:pk.id,n,why,v:AIV}}});
       if(Object.keys(memos).length)act('aiMemo',{memos});
       PR.ai='ok';PR.aiModel=r.model;
     }catch(e){PR.ai=e.status===412?'slået-fra':(e.message||'fejl');if(e.status===412)break}
