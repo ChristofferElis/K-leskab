@@ -360,6 +360,14 @@ function reduce(S,a){
     case 'setSetting':
       if(a.key==='zip')S.settings.zip=/^\d{4}$/.test(a.value||'')?a.value:null;
       break;
+    case 'aiMemo':{
+      S.aiMemo=S.aiMemo||{};var mm=a.memos||{};
+      for(var mk in mm){var v=mm[mk]||{};S.aiMemo[String(mk).slice(0,80)]={q:String(v.q||'').slice(0,80),id:v.id?String(v.id).slice(0,120):null,none:!!v.none,n:Math.max(1,Math.min(50,+v.n||1)),why:String(v.why||'').slice(0,140)}}
+      var mks=Object.keys(S.aiMemo);if(mks.length>400)delete S.aiMemo[mks[0]];
+      break;}
+    case 'aiForget':
+      if(S.aiMemo)(a.names||[]).forEach(function(n){delete S.aiMemo[String(n)]});
+      break;
     case 'setPriceChoice':
       if(a.name){var pk2=key(a.name);if(a.pick)S.priceChoice[pk2]=String(a.pick).slice(0,80);else delete S.priceChoice[pk2]}
       break;
@@ -970,24 +978,35 @@ function rank(name,pool){
   return pool.filter(o=>!isNonFood(o.h+' '+o.d)).map(o=>({...o,score:Math.max(pscore(name,o.h),.85*pscore(name,o.h+' '+o.d))}))
     .filter(o=>o.score>=.45).sort((a,b)=>b.score-a.score||a.p-b.p);
 }
-let normRaw=0,normAll=[];
-async function normalPrices(name){
+/* dagens svar gemmes på telefonen, så samme liste giver samme resultat hele dagen */
+function pcache(){let c=LS.get('kb-pcache',null);if(!c||c.day!==today())c={day:today(),norm:{}};return c}
+async function normalRaw(name){
+  const c=pcache(),key=pkey(name);
+  if(c.norm[key])return c.norm[key];
   let d;
   try{d=await sal('/v1/product-suggestions/relevant-products?query='+encodeURIComponent(name))}
   catch(e){if(e.status===404)d=await sal('/v1-beta/product-suggestions/relevant-products?query='+encodeURIComponent(name));else throw e}
   const arr=Array.isArray(d)?d:(d.suggestions||d.products||d.results||d.items||d.data||[]);
-  normRaw=arr.length;
-  return arr.map((x,i)=>{
+  const slim=arr.slice(0,25).map(x=>({title:x.title,name:x.name,productName:x.productName,description:x.description,subtitle:x.subtitle,price:x.price,salesPrice:x.salesPrice,currentPrice:x.currentPrice,prod_id:x.prod_id,productId:x.productId,id:x.id,ean:x.ean}));
+  const c2=pcache();c2.norm[key]=slim;LS.set('kb-pcache',c2);
+  return slim;
+}
+/* returnerer {list: sikre match, all: kandidater til AI, raw: antal forslag} – ingen delte variabler */
+async function normalPrices(name){
+  const arr=await normalRaw(name),all=[];
+  const list=arr.map((x,i)=>{
       const title=String(x.title||x.name||x.productName||x.description||'').trim(),info=String(x.description||x.subtitle||'');
       const price=+(x.price!=null?(x.price.value!=null?x.price.value:x.price):(x.salesPrice!=null?x.salesPrice:x.currentPrice));
       return {id:'n:'+(x.prod_id||x.productId||x.id||x.ean||i),title,info,price,score:Math.max(pscore(name,title),.85*pscore(name,title+' '+info)),i}})
     .filter(x=>x.price>0&&!isNonFood(x.title+' '+x.info))
-    .filter(x=>{if(x.score>=.3||loose(name,x.title)>=.5)normAll.push(x);return x.score>=.75}).sort((a,b)=>b.score-a.score||a.i-b.i).slice(0,5);
+    .filter(x=>{if(x.score>=.3||loose(name,x.title)>=.5)all.push(x);return x.score>=.75}).sort((a,b)=>b.score-a.score||a.i-b.i).slice(0,5);
+  return {list,all:all.slice(0,5),raw:arr.length};
 }
 async function openPrices(force){
   const open=S.shopping.filter(x=>!x.done);if(!open.length)return;
   const names=[...new Set(open.map(x=>x.name))];
   PR={items:{},waste:[],status:{},done:0,total:names.length,offers:null,pool:[]};prOpen=null;prLoading=true;drawPrices();
+  if(force){LS.del('kb-pcache');act('aiForget',{names:names.map(pkey)})}
   let O=null;
   try{O=await loadOffers(force);PR.offers={counts:O.counts,mode:O.mode,n:O.list.length};PR.pool=O.mode==='avis'?O.list:[]}catch(e){PR.status.tjek=e.message||'fejl'}
   if(prVisible())drawPrices();
@@ -1010,7 +1029,7 @@ async function openPrices(force){
       /* hvis I tidligere har valgt et bestemt tilbud, find det igen i denne uges avis */
       const ch=pickOf(k);
       if(ch&&ch.startsWith('h:')&&pool.length&&!it.offers.some(o=>o.hk===ch)){const f=pool.find(o=>headKey(o.h)===ch);if(f)it.offers.unshift({id:'o:'+f.id,hk:ch,title:f.h,info:f.d,price:f.p,pre:f.pp,shop:f.s,till:f.t,from:f.f})}
-      if(salOk){try{normAll=[];it.normal=await normalPrices(q);it.normRaw=normRaw;it.normAll=normAll.slice(0,5)}catch(e){if(e.status===412){salOk=false;PR.status.salling='mangler-nøgle'}else PR.status.salling=e.message||'fejl'}}
+      if(salOk){try{const np=await normalPrices(q);it.normal=np.list;it.normRaw=np.raw;it.normAll=np.all}catch(e){if(e.status===412){salOk=false;PR.status.salling='mangler-nøgle'}else PR.status.salling=e.message||'fejl'}}
       PR.items[k]=it;
     }));
     PR.done=Math.min(names.length,i+4);if(prVisible())drawPrices();
@@ -1030,6 +1049,14 @@ async function runAI(names){
   const todo=names.map(n=>{const k=pkey(n),it=PR.items[k];if(!it||pickOf(k))return null;
     const seen=new Set(),cands=[...(it.aiOffers||[]),...(it.normAll||[])].filter(c=>c&&c.price>0&&!seen.has(c.id)&&seen.add(c.id)).slice(0,15);
     it.aiCands=cands;
+    /* tidligere AI-valg genbruges, så længe produktet stadig findes – samme svar hver gang, på begge telefoner */
+    const m=S.aiMemo&&S.aiMemo[k];
+    if(m&&m.q===it.q){
+      if(m.none&&!cands.length){it.ai={none:true,why:m.why||''};return null}
+      const c=m.id&&cands.find(x=>(x.hk||x.id)===m.id);
+      if(c){it.ai={c,n:m.n||1,why:m.why||'',memo:true};return null}
+      if(m.none){it.ai={none:true,why:m.why||''};return null}
+    }
     const sq=(S.shopping.find(x=>pkey(x.name)===k)||{}).qty||1;
     return cands.length?{k,name:it.q||n,qty:sq*prepName(n).mult,cands:cands.map(c=>({id:c.hk||c.id,t:c.title,d:(c.info||'').slice(0,60),p:c.price,s:c.id.startsWith('o:')?'Tilbud '+(c.shop||''):'Normalpris Bilka ToGo'}))}:null}).filter(Boolean);
   if(!todo.length)return;
@@ -1037,11 +1064,15 @@ async function runAI(names){
   for(let i=0;i<todo.length;i+=6){
     try{
       const r=await api('/api/ai-match',{items:todo.slice(i,i+6)});
+      const memos={};
       (r.picks||[]).forEach(pk=>{const it=PR.items[pk.k];if(!it)return;
-        if(!pk.id||pk.id==='null'){it.ai={none:true,why:pk.why||''};return}
-        const c=(it.aiCands||[]).find(x=>(x.hk||x.id)===pk.id);if(c)it.ai={c,n:Math.max(1,Math.min(50,Math.round(+pk.n)||1)),why:String(pk.why||'').slice(0,140)}});
+        const why=String(pk.why||'').slice(0,140);
+        if(!pk.id||pk.id==='null'){it.ai={none:true,why};memos[pk.k]={q:it.q,none:true,why};return}
+        const c=(it.aiCands||[]).find(x=>(x.hk||x.id)===pk.id);
+        if(c){const n=Math.max(1,Math.min(50,Math.round(+pk.n)||1));it.ai={c,n,why};memos[pk.k]={q:it.q,id:pk.id,n,why}}});
+      if(Object.keys(memos).length)act('aiMemo',{memos});
       PR.ai='ok';PR.aiModel=r.model;
-    }catch(e){PR.ai=e.status===412?'slået-fra':(e.message||'fejl');break}
+    }catch(e){PR.ai=e.status===412?'slået-fra':(e.message||'fejl');if(e.status===412)break}
     if(prVisible())drawPrices();
   }
 }
@@ -1055,7 +1086,7 @@ function chosen(name){
   if(ch==='none')return null;
   const all=[...r.offers,...r.near,...r.normal,...(r.manual||[]),...(r.aiCands||[])];
   if(ch){const f=all.find(x=>x.hk===ch||x.id===ch);if(f)return f}
-  if(r.ai){if(r.ai.none)return null;if(r.ai.c)return r.ai.c}
+  if(r.ai&&r.ai.c)return r.ai.c;
   return r.offers[0]||r.normal[0]||null;
 }
 function altBtn(k,x,c,mq){
@@ -1114,7 +1145,7 @@ async function manualSearch(k){
   r.mq=q;r.manual=null;drawPrices();
   const off=rank(q,PR.pool&&PR.pool.length?PR.pool:await searchOffers(q).catch(()=>[])).filter(o=>o.score>=.6).slice(0,6)
     .map(o=>({id:'o:'+o.id,hk:headKey(o.h),title:o.h,info:o.d,price:o.p,pre:o.pp,shop:o.s,till:o.t,from:o.f}));
-  let nor=[];try{nor=await normalPrices(q)}catch(e){}
+  let nor=[];try{nor=(await normalPrices(q)).list}catch(e){}
   r.manual=[...off,...nor];drawPrices();
 }
 async function checkSalling(btn){
