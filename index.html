@@ -123,6 +123,10 @@ nav svg{width:26px;height:26px}
 .alts button{display:flex;gap:10px;align-items:center;text-align:left;background:#f6f3ee;border-radius:12px;padding:10px 12px;border:1.5px solid transparent}
 .alts button.on{border-color:var(--accent);background:var(--accent-soft)}
 .alts b{display:block;font-size:15px}.alts small{display:block;color:var(--muted);font-size:12.5px}
+.psearch{display:flex;gap:6px;margin-top:4px}.psearch input{flex:1;padding:10px 12px;border-radius:12px;border:1px solid var(--line);font-size:16px;background:#fff;outline:none}
+.psearch button{padding:0 14px;border-radius:12px;background:var(--accent);color:#fff;font-weight:650}
+.chip.ai{background:#efe7fb;color:#6a3fb5}
+.aiwhy{font-size:13.5px;color:#6a3fb5;background:#f5effd;border-radius:10px;padding:8px 10px}
 .grab{width:40px;height:5px;border-radius:3px;background:#d6d1c8;margin:0 auto 14px}
 .sheet h2{margin:0 0 2px;font-size:24px;letter-spacing:-.02em}
 .sheet .meta{margin-bottom:16px}
@@ -372,8 +376,11 @@ function reduce(S,a){
       out.push(listMsg(l.name,l.qty));
       break;}
     case 'shopAdd':{
-      var sn=clean(a.name);if(!sn)break;
-      reorder(sn,1,'stk');remember(sn);
+      var sn=clean(a.name),sq=1,qm;if(!sn)break;
+      if((qm=sn.match(/^(\d{1,2})\s*(?:x|×|stk\.?)?\s+(.+)$/i))){sq=+qm[1];sn=clean(qm[2])}
+      else if((qm=sn.match(/^(.+?)\s+(?:x|×)\s*(\d{1,2})$/i))){sq=+qm[2];sn=clean(qm[1])}
+      sq=Math.max(1,Math.min(50,sq));
+      reorder(sn,sq,'stk');remember(sn);
       log('satte '+sn.toLowerCase()+' på listen');
       out.push(listMsg(sn,0));
       break;}
@@ -453,6 +460,9 @@ const persist=()=>{LS.set('kb-state',S);LS.set('kb-pending',pending)};
 let demoSrv=null;
 function demoApi(path,body){
   if(!demoSrv)demoSrv=LS.get('kb-demo-srv',null)||demoSeed();
+  if(path==='/api/ai-match'){
+    return {model:'demo',picks:(body.items||[]).map(it=>{const c=it.cands.slice().sort((a,b)=>(pscore(it.name,b.t)>=.75)-(pscore(it.name,a.t)>=.75)||(/tilbud/i.test(b.s)-/tilbud/i.test(a.s))||a.p-b.p)[0];return {k:it.k,id:c.id,n:it.qty,why:'Demo: i den rigtige app forklarer AI\'en sit valg her'}})};
+  }
   if(path.indexOf('/api/tjek')===0||path.indexOf('/api/salling')===0){
     const p=decodeURIComponent(path.split('p=')[1]||'');
     const O=(id,h,price,pre,shop,d)=>({id,heading:h,description:d||'',pricing:{price,pre_price:pre},dealer:{name:shop},run_till:new Date(Date.now()+4*864e5).toISOString()});
@@ -870,16 +880,33 @@ const pkey=n=>String(n).trim().toLowerCase();
 const STOP=new Set(['øko','økologisk','økologiske','oeko','stk','pk','ca','g','kg','l','ml','cl','dl','dansk','danske','fersk','ferske','frisk','friske','stor','store','små','lille','eller','og','med','fra','pr','flere','varianter','valgfri','frit','valg','pakke','pakker','bakke','glas','dåse','fx','af','i','til','x','div','diverse','udvalgte','sorter','mix','frost']);
 const OKREST=['filet','strimler','stykker','skiver','tern','bryst','lår','kød','pakke','overlår','inderfilet','bøf'];
 const ptoks=s=>String(s||'').toLowerCase().replace(/[^a-zæøåäöüé0-9 ]+/g,' ').split(/\s+/).filter(t=>t&&!/^\d/.test(t)&&!STOP.has(t));
-const pstem=t=>t.length>4?t.replace(/(erne|ene|er|en|et|e|r)$/,''):t;
+const pstem=t=>t.length>4?t.replace(/(erne|ede|ene|er|en|et|ed|e|r)$/,''):t;
+/* højst ét bogstav forskel (stavefejl som humus/hummus) */
+function lev1(a,b){if(a===b)return true;const la=a.length,lb=b.length;if(Math.abs(la-lb)>1)return false;let i=0,j=0,d=0;
+  while(i<la&&j<lb){if(a[i]===b[j]){i++;j++;continue}if(++d>1)return false;if(la>lb)i++;else if(lb>la)j++;else{i++;j++}}
+  return d+(la-i)+(lb-j)<=1}
+/* varer der aldrig er madvarer – så "linser" ikke bliver til et kamera */
+const NONFOOD=['kamera','instax','printer','fjernsyn','mobil','iphone','høretelefon','headset','t-shirt','jakke','bukser','sko','støvler','legetøj','lego','støvsuger','pande','gryde','kniv','lampe','pære','batteri','cykel','dyne','pude','håndklæde','sengetøj','parfume','neglelak','playstation','xbox','nintendo','smykke','kaffemaskine','blender','airfryer','grill','objektiv','fotopapir','film','tablet','computer','skærm','højttaler','kjole','strømper','undertøj','trusser','bh'];
+const isNonFood=txt=>{const T=String(txt||'').toLowerCase().replace(/[^a-zæøåäöüé0-9 -]+/g,' ').split(/\s+/);return T.some(t=>NONFOOD.some(n=>t===n||(n.length>=5&&t.endsWith(n))))};
+/* "2x hakket tomat" → antal 2, "linser til daal" → "linser" */
+function prepName(name){
+  let n=String(name||'').trim(),mult=1,m;
+  if((m=n.match(/^(\d{1,2})\s*(?:x|×|stk\.?|pk\.?)?\s+(.+)$/i))){mult=+m[1];n=m[2]}
+  else if((m=n.match(/^(.+?)\s+(?:x|×)\s*(\d{1,2})$/i))||(m=n.match(/^(.+?)\s+(\d{1,2})\s*(?:x|×|stk\.?)$/i))){mult=+m[2];n=m[1]}
+  n=n.replace(/\(.*?\)/g,' ').split(/\s+(?:til|for|fra)\s+/i)[0].trim();
+  return {q:n||String(name),mult:Math.max(1,Math.min(50,mult))};
+}
 function tokScore(l,T,raw){
   let best=0;
   for(let i=0;i<T.length;i++){
     const t=T[i];
     if(t===l)return 1;
     if(i+1<T.length&&(t+T[i+1]===l||pstem(raw[i]+raw[i+1])===l))return 1;
+    if(l.length>=5&&t.length>=5&&lev1(l,t))best=Math.max(best,.9);
     if((l.length>=3||l==='æg')&&t.endsWith(l))best=Math.max(best,.95);
     else if(l.length>=4&&t.startsWith(l)){const rest=t.slice(l.length);best=Math.max(best,OKREST.some(x=>rest.startsWith(pstem(x)))?.9:.5)}
-    else if(t.length>=3&&l.endsWith(t))best=Math.max(best,.65);
+    /* "havremælk" må ikke matche "mælk" – forleddet ændrer varen */
+    else if(t.length>=3&&l.endsWith(t))best=Math.max(best,.5);
   }
   return best;
 }
@@ -890,6 +917,12 @@ function pscore(name,text){
   return sum/w;
 }
 const headKey=h=>'h:'+ptoks(h).join(' ');
+/* løs lighed til AI'ens kandidatliste: fælles ordbegyndelse (havremælk ~ havredrik) */
+function loose(name,text){
+  const L=ptoks(name).map(pstem),T=ptoks(text).map(pstem);if(!L.length||!T.length)return 0;
+  let hit=0;for(const l of L){if(T.some(t=>t===l||(l.length>=4&&t.length>=4&&t.slice(0,4)===l.slice(0,4))||(l.length>=4&&t.includes(l))||(t.length>=4&&l.includes(t))||(l.length>=5&&t.length>=5&&lev1(l,t))))hit++}
+  return hit/L.length;
+}
 const tj=p=>api('/api/tjek?p='+encodeURIComponent(p));
 const sal=p=>api('/api/salling?p='+encodeURIComponent(p));
 function compactOffer(o,shop){const p=o.pricing||{};return {id:String(o.id),h:String(o.heading||''),d:String(o.description||'').slice(0,160),p:p.price,pp:p.pre_price||null,s:(o.dealer&&o.dealer.name)||(o.branding&&o.branding.name)||shop,t:o.run_till||null,f:o.run_from||null}}
@@ -934,64 +967,100 @@ async function searchOffers(name){
   return out;
 }
 function rank(name,pool){
-  return pool.map(o=>({...o,score:Math.max(pscore(name,o.h),.9*pscore(name,o.h+' '+o.d))}))
+  return pool.filter(o=>!isNonFood(o.h+' '+o.d)).map(o=>({...o,score:Math.max(pscore(name,o.h),.85*pscore(name,o.h+' '+o.d))}))
     .filter(o=>o.score>=.45).sort((a,b)=>b.score-a.score||a.p-b.p);
 }
+let normRaw=0,normAll=[];
 async function normalPrices(name){
   let d;
   try{d=await sal('/v1/product-suggestions/relevant-products?query='+encodeURIComponent(name))}
   catch(e){if(e.status===404)d=await sal('/v1-beta/product-suggestions/relevant-products?query='+encodeURIComponent(name));else throw e}
-  const arr=Array.isArray(d)?d:(d.suggestions||d.products||d.results||[]);
-  return arr.map((x,i)=>({id:'n:'+(x.prod_id||x.id||i),title:String(x.title||x.description||'').trim(),info:String(x.description||''),price:+x.price,score:pscore(name,(x.title||'')+' '+(x.description||'')),i}))
-    .filter(x=>x.price>0&&x.score>=.6).sort((a,b)=>b.score-a.score||a.i-b.i).slice(0,5);
+  const arr=Array.isArray(d)?d:(d.suggestions||d.products||d.results||d.items||d.data||[]);
+  normRaw=arr.length;
+  return arr.map((x,i)=>{
+      const title=String(x.title||x.name||x.productName||x.description||'').trim(),info=String(x.description||x.subtitle||'');
+      const price=+(x.price!=null?(x.price.value!=null?x.price.value:x.price):(x.salesPrice!=null?x.salesPrice:x.currentPrice));
+      return {id:'n:'+(x.prod_id||x.productId||x.id||x.ean||i),title,info,price,score:Math.max(pscore(name,title),.85*pscore(name,title+' '+info)),i}})
+    .filter(x=>x.price>0&&!isNonFood(x.title+' '+x.info))
+    .filter(x=>{if(x.score>=.3||loose(name,x.title)>=.5)normAll.push(x);return x.score>=.75}).sort((a,b)=>b.score-a.score||a.i-b.i).slice(0,5);
 }
 async function openPrices(force){
   const open=S.shopping.filter(x=>!x.done);if(!open.length)return;
   const names=[...new Set(open.map(x=>x.name))];
-  PR={items:{},waste:[],status:{},done:0,total:names.length,offers:null};prOpen=null;prLoading=true;drawPrices();
+  PR={items:{},waste:[],status:{},done:0,total:names.length,offers:null,pool:[]};prOpen=null;prLoading=true;drawPrices();
   let O=null;
-  try{O=await loadOffers(force);PR.offers={counts:O.counts,mode:O.mode,n:O.list.length}}catch(e){PR.status.tjek=e.message||'fejl'}
+  try{O=await loadOffers(force);PR.offers={counts:O.counts,mode:O.mode,n:O.list.length};PR.pool=O.mode==='avis'?O.list:[]}catch(e){PR.status.tjek=e.message||'fejl'}
   if(prVisible())drawPrices();
   let salOk=true;
   for(let i=0;i<names.length;i+=4){
     await Promise.all(names.slice(i,i+4).map(async n=>{
       const k=pkey(n),it={offers:[],near:[],normal:[]};
+      const ch0=S.priceChoice&&S.priceChoice[k]||'';
+      const q=ch0.startsWith('q:')?ch0.slice(2).split('||')[0]:prepName(n).q;
+      it.q=q;
       let pool=O&&O.mode==='avis'?O.list:[];
-      if(!pool.length){try{pool=await searchOffers(n)}catch(e){}}
-      const r=rank(n,pool);
+      if(!pool.length){try{pool=await searchOffers(q)}catch(e){}}
+      const r=rank(q,pool);
       it.offers=r.filter(o=>o.score>=.75).slice(0,6).map(o=>({id:'o:'+o.id,hk:headKey(o.h),title:o.h,info:o.d,price:o.p,pre:o.pp,shop:o.s,till:o.t,from:o.f}));
       it.near=r.filter(o=>o.score<.75).slice(0,3).map(o=>({id:'o:'+o.id,hk:headKey(o.h),title:o.h,info:o.d,price:o.p,pre:o.pp,shop:o.s,till:o.t,from:o.f,near:true}));
+      /* kandidater til AI: de bedste ord-match + løse ligheder */
+      const seenC=new Set(r.slice(0,8).map(o=>o.id));
+      const lo=pool.filter(o=>!seenC.has(o.id)&&!isNonFood(o.h+' '+o.d)).map(o=>({o,l:loose(q,o.h)})).filter(x=>x.l>=.5).sort((a,b)=>b.l-a.l||a.o.p-b.o.p).slice(0,6).map(x=>x.o);
+      it.aiOffers=[...r.slice(0,8),...lo].map(o=>({id:'o:'+o.id,hk:headKey(o.h),title:o.h,info:o.d,price:o.p,pre:o.pp,shop:o.s,till:o.t,from:o.f}));
       /* hvis I tidligere har valgt et bestemt tilbud, find det igen i denne uges avis */
-      const ch=S.priceChoice&&S.priceChoice[k];
+      const ch=pickOf(k);
       if(ch&&ch.startsWith('h:')&&pool.length&&!it.offers.some(o=>o.hk===ch)){const f=pool.find(o=>headKey(o.h)===ch);if(f)it.offers.unshift({id:'o:'+f.id,hk:ch,title:f.h,info:f.d,price:f.p,pre:f.pp,shop:f.s,till:f.t,from:f.f})}
-      if(salOk){try{it.normal=await normalPrices(n)}catch(e){if(e.status===412){salOk=false;PR.status.salling='mangler-nøgle'}else PR.status.salling=e.message||'fejl'}}
+      if(salOk){try{normAll=[];it.normal=await normalPrices(q);it.normRaw=normRaw;it.normAll=normAll.slice(0,5)}catch(e){if(e.status===412){salOk=false;PR.status.salling='mangler-nøgle'}else PR.status.salling=e.message||'fejl'}}
       PR.items[k]=it;
     }));
     PR.done=Math.min(names.length,i+4);if(prVisible())drawPrices();
   }
+  await runAI(names);
   const zip=S.settings&&S.settings.zip;
   if(zip&&salOk){
     try{const d=await sal('/v1/food-waste/?zip='+zip);
       (Array.isArray(d)?d:[]).forEach(st=>{const s2=st.store||{};if(!isBFname(s2.brand)&&!isBFname(s2.name))return;
-        (st.clearances||[]).forEach(c=>{const o=c.offer||{},pr=c.product||{};const f=names.find(n=>pscore(n,pr.description)>=.8);
+        (st.clearances||[]).forEach(c=>{const o=c.offer||{},pr=c.product||{};const f=names.find(n=>pscore(prepName(n).q,pr.description)>=.8);
           if(f)PR.waste.push({for:f,desc:pr.description,store:s2.name,newPrice:o.newPrice,originalPrice:o.originalPrice,stock:o.stock,end:o.endTime})})});
     }catch(e){PR.status.waste=e.message||'fejl'}
   }
   prLoading=false;if(prVisible())drawPrices();
 }
+async function runAI(names){
+  const todo=names.map(n=>{const k=pkey(n),it=PR.items[k];if(!it||pickOf(k))return null;
+    const seen=new Set(),cands=[...(it.aiOffers||[]),...(it.normAll||[])].filter(c=>c&&c.price>0&&!seen.has(c.id)&&seen.add(c.id)).slice(0,15);
+    it.aiCands=cands;
+    const sq=(S.shopping.find(x=>pkey(x.name)===k)||{}).qty||1;
+    return cands.length?{k,name:it.q||n,qty:sq*prepName(n).mult,cands:cands.map(c=>({id:c.hk||c.id,t:c.title,d:(c.info||'').slice(0,60),p:c.price,s:c.id.startsWith('o:')?'Tilbud '+(c.shop||''):'Normalpris Bilka ToGo'}))}:null}).filter(Boolean);
+  if(!todo.length)return;
+  PR.ai='kører';if(prVisible())drawPrices();
+  for(let i=0;i<todo.length;i+=6){
+    try{
+      const r=await api('/api/ai-match',{items:todo.slice(i,i+6)});
+      (r.picks||[]).forEach(pk=>{const it=PR.items[pk.k];if(!it)return;
+        if(!pk.id||pk.id==='null'){it.ai={none:true,why:pk.why||''};return}
+        const c=(it.aiCands||[]).find(x=>(x.hk||x.id)===pk.id);if(c)it.ai={c,n:Math.max(1,Math.min(50,Math.round(+pk.n)||1)),why:String(pk.why||'').slice(0,140)}});
+      PR.ai='ok';PR.aiModel=r.model;
+    }catch(e){PR.ai=e.status===412?'slået-fra':(e.message||'fejl');break}
+    if(prVisible())drawPrices();
+  }
+}
 const prVisible=()=>$('sheet').classList.contains('on')&&!!$('prbody');
 function candidates(name){const r=PR&&PR.items[pkey(name)];return r?[...r.offers,...r.normal]:[]}
+/* valg gemmes som "none", et id/overskrift, eller "q:<egen søgning>||<id>" */
+function pickOf(k){const c=S.priceChoice&&S.priceChoice[k]||'';return c.startsWith('q:')?(c.split('||')[1]||''):c}
 function chosen(name){
   const r=PR&&PR.items[pkey(name)];if(!r)return null;
-  const ch=S.priceChoice&&S.priceChoice[pkey(name)];
+  const ch=pickOf(pkey(name));
   if(ch==='none')return null;
-  const all=[...r.offers,...r.near,...r.normal];
+  const all=[...r.offers,...r.near,...r.normal,...(r.manual||[]),...(r.aiCands||[])];
   if(ch){const f=all.find(x=>x.hk===ch||x.id===ch);if(f)return f}
+  if(r.ai){if(r.ai.none)return null;if(r.ai.c)return r.ai.c}
   return r.offers[0]||r.normal[0]||null;
 }
-function altBtn(k,x,c){
-  const isO=x.id.startsWith('o:');
-  return `<button class="${c&&c.id===x.id?'on':''}" onclick="pickPrice('${esc(k)}','${esc(isO?x.hk:x.id)}')">
+function altBtn(k,x,c,mq){
+  const isO=x.id.startsWith('o:'),pid=isO?x.hk:x.id;
+  return `<button class="${c&&c.id===x.id?'on':''}" onclick="pickPrice('${esc(k)}','${esc(mq?'q:'+mq+'||'+pid:pid)}')">
     <span class="grow"><b>${esc(x.title)}</b><small>${isO?'Tilbud · '+esc(x.shop||'')+(x.from&&Date.parse(x.from)>Date.now()?' · fra '+fmtDate(iso(new Date(x.from))):'')+(x.till?' · til '+fmtDate(iso(new Date(x.till))):'')+(x.pre?' · før '+kr(x.pre):''):'Normalpris · Bilka ToGo'}${x.info?' · '+esc(x.info.slice(0,70)):''}</small></span><span class="p">${kr(x.price)}</span></button>`;
 }
 function drawPrices(){
@@ -999,15 +1068,20 @@ function drawPrices(){
   let total=0,priced=0,onOffer=0,saved=0;
   const rows=open.map(s=>{
     const k=pkey(s.name),r=PR.items[k],c=chosen(s.name),isOffer=c&&c.id.startsWith('o:');
-    if(c){total+=c.price*s.qty;priced++;if(isOffer){onOffer++;if(c.pre)saved+=(c.pre-c.price)*s.qty}}
-    const badge=!r?'<span class="chip">Henter…</span>':c?(isOffer?`<span class="chip ok">Tilbud · ${esc(c.shop||'')}</span>`:'<span class="chip">Normalpris</span>'):(r.near.length?'<span class="chip warn">Måske – tryk</span>':'<span class="chip">Ingen pris</span>');
-    const alts=prOpen===k&&r?`<div class="alts">${r.offers.map(x=>altBtn(k,x,c)).join('')}${r.normal.map(x=>altBtn(k,x,c)).join('')}
+    const byAI=!!(c&&r&&r.ai&&r.ai.c===c&&!pickOf(k)),n=byAI?r.ai.n:s.qty*prepName(s.name).mult;
+    if(c){total+=c.price*n;priced++;if(isOffer){onOffer++;if(c.pre)saved+=(c.pre-c.price)*n}}
+    const badge=(!r?'<span class="chip">Henter…</span>':c?(isOffer?`<span class="chip ok">Tilbud · ${esc(c.shop||'')}</span>`:'<span class="chip">Normalpris</span>'):(r.near.length?'<span class="chip warn">Måske – tryk</span>':'<span class="chip">Ingen pris</span>'))+(byAI?' <span class="chip ai">✦ AI</span>':'');
+    const aiTop=r&&r.ai&&r.ai.c&&!r.offers.concat(r.normal).some(x=>x.id===r.ai.c.id)?altBtn(k,r.ai.c,c):'';
+    const alts=prOpen===k&&r?`<div class="alts">${r.ai&&r.ai.why?`<div class="aiwhy">✦ ${esc(r.ai.why)}</div>`:''}${aiTop}${r.offers.map(x=>altBtn(k,x,c)).join('')}${r.normal.map(x=>altBtn(k,x,c)).join('')}
       ${r.near.length?`<div class="meta" style="padding:6px 4px 0">Måske – vælg hvis det passer, så husker appen det:</div>${r.near.map(x=>altBtn(k,x,c)).join('')}`:''}
       ${!r.offers.length&&!r.normal.length&&!r.near.length?'<div class="meta" style="padding:10px 4px">Intet fundet hos Bilka eller føtex. Prøv evt. at kalde varen noget mere almindeligt på listen.</div>':''}
-      <button onclick="pickPrice('${esc(k)}','none')" class="${S.priceChoice&&S.priceChoice[k]==='none'?'on':''}"><span class="grow"><b>Tæl ikke med</b></span></button></div>`:'';
+      <form class="psearch" onsubmit="event.preventDefault();manualSearch('${esc(k)}')"><input id="ps" placeholder="Søg selv, fx kokosmælk dåse" value="${esc(r.mq||'')}" autocomplete="off" enterkeyhint="search"><button>Søg</button></form>
+      ${r.manual?(r.manual.length?`<div class="meta" style="padding:6px 4px 0">Søgeresultater – vælg, så bruger appen din søgning fremover:</div>${r.manual.map(x=>altBtn(k,x,c,r.mq)).join('')}`:'<div class="meta" style="padding:6px 4px">Ingen resultater.</div>'):''}
+      <button onclick="pickPrice('${esc(k)}','none')" class="${pickOf(k)==='none'?'on':''}"><span class="grow"><b>Tæl ikke med</b></span></button>
+      <div class="meta" style="padding:4px;font-size:12px">Matchet som "${esc(r.q||'')}"${r.normRaw!=null?' · Bilka ToGo gav '+r.normRaw+' forslag':''}</div></div>`:'';
     return `<div class="prow"><button class="row" onclick="prOpen=prOpen==='${esc(k)}'?null:'${esc(k)}';drawPrices()">
-      <span class="grow"><div class="name">${esc(s.name)} <span style="font-weight:500;color:var(--muted)">× ${s.qty}${s.unit==='pakke'?' pk':''}</span></div><div class="meta">${c?esc(c.title):r?'Tryk for at se muligheder':''}</div>${badge}</span>
-      <span class="p">${c?kr(c.price*s.qty):'–'}</span></button>${alts}</div>`;
+      <span class="grow"><div class="name">${esc(s.name)} <span style="font-weight:500;color:var(--muted)">× ${n}${s.unit==='pakke'?' pk':''}</span></div><div class="meta">${c?esc(c.title):r?'Tryk for at se muligheder':''}</div>${badge}</span>
+      <span class="p">${c?kr(c.price*n):'–'}</span></button>${alts}</div>`;
   }).join('');
   const st=PR.status,notes=[];
   if(PR.demo)notes.push('Demo: priserne her er eksempler.');
@@ -1016,6 +1090,9 @@ function drawPrices(){
   if(st.salling==='mangler-nøgle')notes.push('<b>Normalpriser mangler:</b> serveren har ingen Salling-nøgle endnu. Se guiden under Os to → Priser.');
   else if(st.salling)notes.push('Normalpriser kunne ikke hentes: '+esc(st.salling));
   if(st.waste)notes.push('Nedsatte varer kunne ikke hentes: '+esc(st.waste));
+  if(PR.ai==='kører')notes.push('✦ AI vælger de bedste varer …');
+  else if(PR.ai==='slået-fra')notes.push('AI er ikke slået til endnu: tilføj en Workers AI-binding med navnet <b>AI</b> i Cloudflare (se guiden). Indtil da bruges den almindelige matchning.');
+  else if(PR.ai&&PR.ai!=='ok')notes.push('AI kunne ikke svare ('+esc(PR.ai)+') – den almindelige matchning bruges.');
   const W=PR.waste||[];
   const wasteHtml=W.length?`<div class="section-title">Nedsat lige nu i nærheden</div><div class="list">${W.map(w=>`<div class="row"><span class="grow"><div class="name">${esc(w.desc||'')}</div><div class="meta">${esc(w.store||'')}${w.stock?' · '+w.stock+' tilbage':''}${w.end?' · til '+when(Date.parse(w.end)):''}</div><span class="chip warn">For ${esc(w.for)}</span></span><span class="p">${kr(w.newPrice)}<small>før ${kr(w.originalPrice)}</small></span></div>`).join('')}</div>`:'';
   openSheet(`<h2>Prisestimat</h2><div class="meta">Bilka og føtex · tilbud fra denne uges aviser, ellers normalpris</div>
@@ -1026,7 +1103,20 @@ function drawPrices(){
     <div class="meta" style="margin:8px 2px 0;font-size:13px">Tryk på en vare for at vælge et andet produkt. Valget huskes – også i de kommende uger, hvis samme tilbud kommer igen. Priserne er et skøn; nogle tilbud kræver medlemskab eller køb af flere.</div>
     ${wasteHtml}`);
 }
-function pickPrice(k,id){act('setPriceChoice',{name:k,pick:id});prOpen=null;drawPrices()}
+function pickPrice(k,id){
+  act('setPriceChoice',{name:k,pick:id});
+  const r=PR.items[k];if(r&&id.startsWith('q:')){r.q=id.slice(2).split('||')[0]}
+  prOpen=null;drawPrices();
+}
+async function manualSearch(k){
+  const el=$('ps'),q=el&&el.value.trim();if(!q)return;
+  const r=PR.items[k];if(!r)return;
+  r.mq=q;r.manual=null;drawPrices();
+  const off=rank(q,PR.pool&&PR.pool.length?PR.pool:await searchOffers(q).catch(()=>[])).filter(o=>o.score>=.6).slice(0,6)
+    .map(o=>({id:'o:'+o.id,hk:headKey(o.h),title:o.h,info:o.d,price:o.p,pre:o.pp,shop:o.s,till:o.t,from:o.f}));
+  let nor=[];try{nor=await normalPrices(q)}catch(e){}
+  r.manual=[...off,...nor];drawPrices();
+}
 async function checkSalling(btn){
   btn.textContent='Tjekker …';
   try{const r=await api('/api/salling-check');
