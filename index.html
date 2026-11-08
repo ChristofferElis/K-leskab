@@ -453,11 +453,15 @@ const persist=()=>{LS.set('kb-state',S);LS.set('kb-pending',pending)};
 let demoSrv=null;
 function demoApi(path,body){
   if(!demoSrv)demoSrv=LS.get('kb-demo-srv',null)||demoSeed();
-  if(path==='/api/prices'){
-    const ex={'mælk':[{id:'o:d1',title:'Arla Lærkevang letmælk',info:'1 liter',price:11,pre:13.95,shop:'føtex',till:addDays(4)}],'æg':[{id:'o:d2',title:'Danæg skrabeæg',info:'10 stk',price:22,pre:28,shop:'Bilka',till:addDays(3)}],'smør':[{id:'o:d3',title:'Lurpak smør',info:'200 g',price:18,pre:24.95,shop:'Bilka',till:addDays(5)}]};
-    const items={};(body.names||[]).forEach(n=>{const k=n.toLowerCase(),h=[...k].reduce((a,c)=>a+c.charCodeAt(0),0);
-      items[k]={offers:Object.keys(ex).filter(x=>k.endsWith(x)).flatMap(x=>ex[x]),normal:[{id:'n:'+k,title:n+' (eksempel)',info:'',price:8+h%30+.95}]}});
-    return {items,waste:[],status:{tjek:'ok',salling:'ok',waste:'ok'},demo:true};
+  if(path.indexOf('/api/tjek')===0||path.indexOf('/api/salling')===0){
+    const p=decodeURIComponent(path.split('p=')[1]||'');
+    const O=(id,h,price,pre,shop,d)=>({id,heading:h,description:d||'',pricing:{price,pre_price:pre},dealer:{name:shop},run_till:new Date(Date.now()+4*864e5).toISOString()});
+    if(p.indexOf('/v2/dealers')===0)return p.indexOf('offset=0')>0?[{id:'B',name:'Bilka'},{id:'F',name:'føtex'}]:[];
+    if(p.indexOf('/v2/offers?')===0){if(p.indexOf('offset=0')<0)return [];const B=p.indexOf('dealer_ids=B')>0;
+      return B?[O('1','Danæg skrabeæg',22,28,'Bilka','10 stk'),O('2','Lurpak smør',18,24.95,'Bilka','200 g'),O('3','Kyllingebrystfileter',49,65,'Bilka','900 g'),O('4','Marabou mælkechokolade',15,null,'Bilka'),...Array.from({length:30},(_,i)=>O('x'+i,'Vare '+i,10,null,'Bilka'))]
+        :[O('5','Arla Lærkevang letmælk',11,13.95,'føtex','1 liter'),O('6','Hakket oksekød 8-12%',45,59,'føtex','500 g'),O('7','Cherry tomater',12,null,'føtex','250 g'),O('8','Rugbrødschips',20,null,'føtex')];}
+    if(p.indexOf('/v1-beta/product-suggestions')===0){const q=decodeURIComponent(p.split('query=')[1]||'');const h=[...q].reduce((a,c)=>a+c.charCodeAt(0),0);return {suggestions:[{title:q.charAt(0).toUpperCase()+q.slice(1)+' (eksempel)',prod_id:'d'+h,price:8+h%30+.95}]}}
+    return [];
   }
   if(path.indexOf('/api/barcode')===0){const c=path.split('code=')[1];return {code:c,name:demoSrv.barcodes&&demoSrv.barcodes[c]||null,source:demoSrv.barcodes&&demoSrv.barcodes[c]?'own':'none'}}
   if(path==='/api/action'){const msgs=reduce(demoSrv,body.action);LS.set('kb-demo-srv',demoSrv);
@@ -858,65 +862,175 @@ function quick(n){draft.expiry=n?addDays(n):null;$('ae').value=draft.expiry||'';
 function markQuick(n){document.querySelectorAll('#qc button').forEach(b=>b.classList.toggle('on',n!==null&&+b.dataset.n===n))}
 function markMode(){const m=draft.mode||modeOf(S,($('an')||{}).value||'');document.querySelectorAll('#am button').forEach(b=>b.classList.toggle('on',b.dataset.m===m))}
 /* ---------- prisestimat ---------- */
+/* Tilbud: hele denne uges avis fra Bilka og føtex hentes én gang om dagen (Tjek) og matches her på telefonen.
+   Normalpris: Salling Group (Bilka ToGo), kræver SALLING_TOKEN på serveren. */
 let PR=null, prOpen=null, prLoading=false;
 const kr=n=>(Math.round(n*100)/100).toFixed(2).replace('.',',')+' kr';
 const pkey=n=>String(n).trim().toLowerCase();
-async function openPrices(){
+const STOP=new Set(['øko','økologisk','økologiske','oeko','stk','pk','ca','g','kg','l','ml','cl','dl','dansk','danske','fersk','ferske','frisk','friske','stor','store','små','lille','eller','og','med','fra','pr','flere','varianter','valgfri','frit','valg','pakke','pakker','bakke','glas','dåse','fx','af','i','til','x','div','diverse','udvalgte','sorter','mix','frost']);
+const OKREST=['filet','strimler','stykker','skiver','tern','bryst','lår','kød','pakke','overlår','inderfilet','bøf'];
+const ptoks=s=>String(s||'').toLowerCase().replace(/[^a-zæøåäöüé0-9 ]+/g,' ').split(/\s+/).filter(t=>t&&!/^\d/.test(t)&&!STOP.has(t));
+const pstem=t=>t.length>4?t.replace(/(erne|ene|er|en|et|e|r)$/,''):t;
+function tokScore(l,T,raw){
+  let best=0;
+  for(let i=0;i<T.length;i++){
+    const t=T[i];
+    if(t===l)return 1;
+    if(i+1<T.length&&(t+T[i+1]===l||pstem(raw[i]+raw[i+1])===l))return 1;
+    if((l.length>=3||l==='æg')&&t.endsWith(l))best=Math.max(best,.95);
+    else if(l.length>=4&&t.startsWith(l)){const rest=t.slice(l.length);best=Math.max(best,OKREST.some(x=>rest.startsWith(pstem(x)))?.9:.5)}
+    else if(t.length>=3&&l.endsWith(t))best=Math.max(best,.65);
+  }
+  return best;
+}
+function pscore(name,text){
+  const L=ptoks(name).map(pstem);if(!L.length)return 0;
+  const raw=ptoks(text),T=raw.map(pstem);if(!T.length)return 0;
+  let sum=0,w=0;L.forEach((l,i)=>{const wt=i===L.length-1?2:1;sum+=wt*tokScore(l,T,raw);w+=wt});
+  return sum/w;
+}
+const headKey=h=>'h:'+ptoks(h).join(' ');
+const tj=p=>api('/api/tjek?p='+encodeURIComponent(p));
+const sal=p=>api('/api/salling?p='+encodeURIComponent(p));
+function compactOffer(o,shop){const p=o.pricing||{};return {id:String(o.id),h:String(o.heading||''),d:String(o.description||'').slice(0,160),p:p.price,pp:p.pre_price||null,s:(o.dealer&&o.dealer.name)||(o.branding&&o.branding.name)||shop,t:o.run_till||null,f:o.run_from||null}}
+const isBFname=n=>/bilka|f(ø|oe)tex/i.test(String(n||''));
+async function loadOffers(force){
+  const c=LS.get('kb-offers',null);
+  if(!force&&c&&c.day===today()&&c.list&&c.list.length>30)return c;
+  let D=LS.get('kb-tjek-dealers',null);
+  if(!D||!D.ids||D.ids.length<2){
+    const ids={};
+    for(let off=0;off<1000&&Object.keys(ids).length<2;off+=100){
+      let arr;try{arr=await tj('/v2/dealers?limit=100&offset='+off)}catch(e){break}
+      if(!Array.isArray(arr)||!arr.length)break;
+      arr.forEach(d=>{const n=String(d.name||'').trim().toLowerCase();if(n==='bilka')ids.Bilka=d.id;if(n==='føtex'||n==='foetex')ids['føtex']=d.id});
+    }
+    D={ids:Object.entries(ids)};LS.set('kb-tjek-dealers',D);
+  }
+  const list=[],counts={},now=Date.now();
+  for(const [shop,id] of D.ids){
+    let n=0;
+    for(let off=0;off<3000;off+=100){
+      let arr;try{arr=await tj('/v2/offers?dealer_ids='+encodeURIComponent(id)+'&limit=100&offset='+off)}catch(e){break}
+      if(!Array.isArray(arr)||!arr.length)break;
+      arr.forEach(o=>{if(o.run_till&&Date.parse(o.run_till)<now)return;if(!(o.pricing&&o.pricing.price>0))return;list.push(compactOffer(o,shop));n++});
+      if(arr.length<100)break;
+    }
+    counts[shop]=n;
+  }
+  const res={day:today(),list,counts,mode:list.length>30?'avis':'søgning'};
+  if(res.mode==='avis')LS.set('kb-offers',res);
+  return res;
+}
+async function searchOffers(name){
+  const t=ptoks(name);
+  const qs=[...new Set([name.trim(),t.join(' '),t.map(pstem).join(' '),t[t.length-1]].filter(Boolean))];
+  const out=[],seen=new Set();
+  for(const q of qs){
+    try{const arr=await tj('/v2/offers/search?query='+encodeURIComponent(q)+'&limit=100');
+      (Array.isArray(arr)?arr:[]).forEach(o=>{const n=(o.dealer&&o.dealer.name)||(o.branding&&o.branding.name);if(isBFname(n)&&!seen.has(o.id)){seen.add(o.id);out.push(compactOffer(o,n))}})}catch(e){}
+    if(out.filter(o=>pscore(name,o.h)>=.75).length>=2)break;
+  }
+  return out;
+}
+function rank(name,pool){
+  return pool.map(o=>({...o,score:Math.max(pscore(name,o.h),.9*pscore(name,o.h+' '+o.d))}))
+    .filter(o=>o.score>=.45).sort((a,b)=>b.score-a.score||a.p-b.p);
+}
+async function normalPrices(name){
+  const d=await sal('/v1-beta/product-suggestions/relevant-products?query='+encodeURIComponent(name));
+  const arr=Array.isArray(d)?d:(d.suggestions||d.products||d.results||[]);
+  return arr.map((x,i)=>({id:'n:'+(x.prod_id||x.id||i),title:String(x.title||x.description||'').trim(),info:String(x.description||''),price:+x.price,score:pscore(name,(x.title||'')+' '+(x.description||'')),i}))
+    .filter(x=>x.price>0&&x.score>=.6).sort((a,b)=>b.score-a.score||a.i-b.i).slice(0,5);
+}
+async function openPrices(force){
   const open=S.shopping.filter(x=>!x.done);if(!open.length)return;
-  PR={items:{},waste:[],status:{},done:0,total:open.length};prOpen=null;prLoading=true;drawPrices();
   const names=[...new Set(open.map(x=>x.name))];
-  for(let i=0;i<names.length;i+=8){
-    try{
-      const r=await api('/api/prices',{names:names.slice(i,i+8),zip:S.settings&&S.settings.zip});
-      Object.assign(PR.items,r.items||{});PR.waste=PR.waste.concat(r.waste||[]);
-      for(const k in (r.status||{}))if(!PR.status[k]||PR.status[k]==='ok')PR.status[k]=r.status[k];
-      if(r.demo)PR.demo=true;
-    }catch(e){PR.error=e.message||'Ingen forbindelse';break}
-    PR.done=Math.min(names.length,i+8);if(prVisible())drawPrices();
+  PR={items:{},waste:[],status:{},done:0,total:names.length,offers:null};prOpen=null;prLoading=true;drawPrices();
+  let O=null;
+  try{O=await loadOffers(force);PR.offers={counts:O.counts,mode:O.mode,n:O.list.length}}catch(e){PR.status.tjek=e.message||'fejl'}
+  if(prVisible())drawPrices();
+  let salOk=true;
+  for(let i=0;i<names.length;i+=4){
+    await Promise.all(names.slice(i,i+4).map(async n=>{
+      const k=pkey(n),it={offers:[],near:[],normal:[]};
+      let pool=O&&O.mode==='avis'?O.list:[];
+      if(!pool.length){try{pool=await searchOffers(n)}catch(e){}}
+      const r=rank(n,pool);
+      it.offers=r.filter(o=>o.score>=.75).slice(0,6).map(o=>({id:'o:'+o.id,hk:headKey(o.h),title:o.h,info:o.d,price:o.p,pre:o.pp,shop:o.s,till:o.t,from:o.f}));
+      it.near=r.filter(o=>o.score<.75).slice(0,3).map(o=>({id:'o:'+o.id,hk:headKey(o.h),title:o.h,info:o.d,price:o.p,pre:o.pp,shop:o.s,till:o.t,from:o.f,near:true}));
+      /* hvis I tidligere har valgt et bestemt tilbud, find det igen i denne uges avis */
+      const ch=S.priceChoice&&S.priceChoice[k];
+      if(ch&&ch.startsWith('h:')&&pool.length&&!it.offers.some(o=>o.hk===ch)){const f=pool.find(o=>headKey(o.h)===ch);if(f)it.offers.unshift({id:'o:'+f.id,hk:ch,title:f.h,info:f.d,price:f.p,pre:f.pp,shop:f.s,till:f.t,from:f.f})}
+      if(salOk){try{it.normal=await normalPrices(n)}catch(e){if(e.status===412){salOk=false;PR.status.salling='mangler-nøgle'}else PR.status.salling=e.message||'fejl'}}
+      PR.items[k]=it;
+    }));
+    PR.done=Math.min(names.length,i+4);if(prVisible())drawPrices();
+  }
+  const zip=S.settings&&S.settings.zip;
+  if(zip&&salOk){
+    try{const d=await sal('/v1/food-waste/?zip='+zip);
+      (Array.isArray(d)?d:[]).forEach(st=>{const s2=st.store||{};if(!isBFname(s2.brand)&&!isBFname(s2.name))return;
+        (st.clearances||[]).forEach(c=>{const o=c.offer||{},pr=c.product||{};const f=names.find(n=>pscore(n,pr.description)>=.8);
+          if(f)PR.waste.push({for:f,desc:pr.description,store:s2.name,newPrice:o.newPrice,originalPrice:o.originalPrice,stock:o.stock,end:o.endTime})})});
+    }catch(e){PR.status.waste=e.message||'fejl'}
   }
   prLoading=false;if(prVisible())drawPrices();
 }
 const prVisible=()=>$('sheet').classList.contains('on')&&!!$('prbody');
-function candidates(name){const r=PR&&PR.items[pkey(name)];return r?[...(r.offers||[]),...(r.normal||[])]:[]}
+function candidates(name){const r=PR&&PR.items[pkey(name)];return r?[...r.offers,...r.normal]:[]}
 function chosen(name){
-  const c=candidates(name),ch=S.priceChoice&&S.priceChoice[pkey(name)];
+  const r=PR&&PR.items[pkey(name)];if(!r)return null;
+  const ch=S.priceChoice&&S.priceChoice[pkey(name)];
   if(ch==='none')return null;
-  return (ch&&c.find(x=>x.id===ch))||c[0]||null;
+  const all=[...r.offers,...r.near,...r.normal];
+  if(ch){const f=all.find(x=>x.hk===ch||x.id===ch);if(f)return f}
+  return r.offers[0]||r.normal[0]||null;
+}
+function altBtn(k,x,c){
+  const isO=x.id.startsWith('o:');
+  return `<button class="${c&&c.id===x.id?'on':''}" onclick="pickPrice('${esc(k)}','${esc(isO?x.hk:x.id)}')">
+    <span class="grow"><b>${esc(x.title)}</b><small>${isO?'Tilbud · '+esc(x.shop||'')+(x.from&&Date.parse(x.from)>Date.now()?' · fra '+fmtDate(iso(new Date(x.from))):'')+(x.till?' · til '+fmtDate(iso(new Date(x.till))):'')+(x.pre?' · før '+kr(x.pre):''):'Normalpris · Bilka ToGo'}${x.info?' · '+esc(x.info.slice(0,70)):''}</small></span><span class="p">${kr(x.price)}</span></button>`;
 }
 function drawPrices(){
   const open=S.shopping.filter(x=>!x.done);
   let total=0,priced=0,onOffer=0,saved=0;
   const rows=open.map(s=>{
-    const c=chosen(s.name),k=pkey(s.name),isOffer=c&&c.id.startsWith('o:');
-    if(c){const t=c.price*s.qty;total+=t;priced++;if(isOffer){onOffer++;if(c.pre)saved+=(c.pre-c.price)*s.qty}}
-    const loaded=PR.items[k]!==undefined;
-    const badge=!loaded?'<span class="chip">Henter…</span>':c?(isOffer?`<span class="chip ok">Tilbud · ${esc(c.shop||'')}</span>`:'<span class="chip">Normalpris</span>'):'<span class="chip">Ingen pris</span>';
-    const alts=prOpen===k?`<div class="alts">${candidates(s.name).map(x=>`<button class="${c&&c.id===x.id?'on':''}" onclick="pickPrice('${esc(k)}','${esc(x.id)}')">
-        <span class="grow"><b>${esc(x.title)}</b><small>${x.id.startsWith('o:')?'Tilbud · '+esc(x.shop||'')+(x.till?' · til '+fmtDate(iso(new Date(x.till))):'')+(x.pre?' · før '+kr(x.pre):''):'Normalpris · Bilka ToGo'}${x.info&&x.id.startsWith('o:')?' · '+esc(x.info):''}</small></span><span class="p">${kr(x.price)}</span></button>`).join('')||'<div class="meta" style="padding:10px 4px">Intet fundet hos Bilka eller føtex.</div>'}
-      <button onclick="pickPrice('${esc(k)}','none')" class="${S.priceChoice&&S.priceChoice[k]==='none'?'on':''}"><span class="grow"><b>Tæl ikke med</b><small>Fx hvis I allerede har en pris i hovedet</small></span></button></div>`:'';
+    const k=pkey(s.name),r=PR.items[k],c=chosen(s.name),isOffer=c&&c.id.startsWith('o:');
+    if(c){total+=c.price*s.qty;priced++;if(isOffer){onOffer++;if(c.pre)saved+=(c.pre-c.price)*s.qty}}
+    const badge=!r?'<span class="chip">Henter…</span>':c?(isOffer?`<span class="chip ok">Tilbud · ${esc(c.shop||'')}</span>`:'<span class="chip">Normalpris</span>'):(r.near.length?'<span class="chip warn">Måske – tryk</span>':'<span class="chip">Ingen pris</span>');
+    const alts=prOpen===k&&r?`<div class="alts">${r.offers.map(x=>altBtn(k,x,c)).join('')}${r.normal.map(x=>altBtn(k,x,c)).join('')}
+      ${r.near.length?`<div class="meta" style="padding:6px 4px 0">Måske – vælg hvis det passer, så husker appen det:</div>${r.near.map(x=>altBtn(k,x,c)).join('')}`:''}
+      ${!r.offers.length&&!r.normal.length&&!r.near.length?'<div class="meta" style="padding:10px 4px">Intet fundet hos Bilka eller føtex. Prøv evt. at kalde varen noget mere almindeligt på listen.</div>':''}
+      <button onclick="pickPrice('${esc(k)}','none')" class="${S.priceChoice&&S.priceChoice[k]==='none'?'on':''}"><span class="grow"><b>Tæl ikke med</b></span></button></div>`:'';
     return `<div class="prow"><button class="row" onclick="prOpen=prOpen==='${esc(k)}'?null:'${esc(k)}';drawPrices()">
-      <span class="grow"><div class="name">${esc(s.name)} <span style="font-weight:500;color:var(--muted)">× ${s.qty}${s.unit==='pakke'?' pk':''}</span></div><div class="meta">${c?esc(c.title):loaded?'Tryk for at se muligheder':''}</div>${badge}</span>
+      <span class="grow"><div class="name">${esc(s.name)} <span style="font-weight:500;color:var(--muted)">× ${s.qty}${s.unit==='pakke'?' pk':''}</span></div><div class="meta">${c?esc(c.title):r?'Tryk for at se muligheder':''}</div>${badge}</span>
       <span class="p">${c?kr(c.price*s.qty):'–'}</span></button>${alts}</div>`;
   }).join('');
-  const st=PR.status||{},notes=[];
-  if(PR.demo)notes.push('Demo: priserne her er eksempler. I den rigtige app hentes de fra Tjek og Salling Group.');
-  if(PR.error)notes.push('Kunne ikke hente priser: '+esc(PR.error));
-  if(st.tjek&&st.tjek!=='ok')notes.push('Tilbud kunne ikke hentes ('+esc(st.tjek)+').');
-  if(st.salling==='mangler-nøgle')notes.push('Normalpriser og nedsatte varer kræver en gratis nøgle fra Salling Group (se guiden). Lige nu vises kun tilbud.');
-  else if(st.salling&&st.salling!=='ok')notes.push('Normalpriser kunne ikke hentes ('+esc(st.salling)+').');
-  const W=(PR.waste||[]);
-  const wasteHtml=W.length?`<div class="section-title">Nedsat lige nu i nærheden</div><div class="list">${W.map(w=>`<div class="row"><span class="grow"><div class="name">${esc(w.desc||'')}</div><div class="meta">${esc(w.store||'')}${w.stock?' · '+w.stock+' tilbage':''}${w.end?' · til '+when(Date.parse(w.end)):''}</div><span class="chip warn">For ${esc(w.for)}</span></span><span class="p">${kr(w.newPrice)}<small>før ${kr(w.originalPrice)}</small></span></div>`).join('')}</div>`:
-    (S.settings&&S.settings.zip?'':`<div class="note">Skriv jeres postnummer under <b>Os to</b>, så viser appen også varer fra listen, der er sat ned, fordi de snart udløber, i Bilka og føtex i nærheden.</div>`);
-  const html=`<h2>Prisestimat</h2><div class="meta">Bilka og føtex · tilbud fra denne uges aviser, ellers normalpris</div>
+  const st=PR.status,notes=[];
+  if(PR.demo)notes.push('Demo: priserne her er eksempler.');
+  if(PR.offers){const o=PR.offers;notes.push(o.mode==='avis'?`Denne uges tilbud indlæst: ${Object.entries(o.counts).map(([a,b])=>esc(a)+' '+b).join(' · ')||'–'}. <a href="#" onclick="event.preventDefault();openPrices(true)">Hent igen</a>`:'Kunne ikke hente hele avisen – søger i stedet vare for vare (færre fund).')}
+  if(st.tjek)notes.push('Tilbud kunne ikke hentes: '+esc(st.tjek));
+  if(st.salling==='mangler-nøgle')notes.push('<b>Normalpriser mangler:</b> serveren har ingen Salling-nøgle endnu. Se guiden under Os to → Priser.');
+  else if(st.salling)notes.push('Normalpriser kunne ikke hentes: '+esc(st.salling));
+  if(st.waste)notes.push('Nedsatte varer kunne ikke hentes: '+esc(st.waste));
+  const W=PR.waste||[];
+  const wasteHtml=W.length?`<div class="section-title">Nedsat lige nu i nærheden</div><div class="list">${W.map(w=>`<div class="row"><span class="grow"><div class="name">${esc(w.desc||'')}</div><div class="meta">${esc(w.store||'')}${w.stock?' · '+w.stock+' tilbage':''}${w.end?' · til '+when(Date.parse(w.end)):''}</div><span class="chip warn">For ${esc(w.for)}</span></span><span class="p">${kr(w.newPrice)}<small>før ${kr(w.originalPrice)}</small></span></div>`).join('')}</div>`:'';
+  openSheet(`<h2>Prisestimat</h2><div class="meta">Bilka og føtex · tilbud fra denne uges aviser, ellers normalpris</div>
     <div class="ptotal"><div><small>Indkøbet koster ca.</small><b>${kr(total)}</b></div><div class="pside">${priced} af ${open.length} varer har en pris${onOffer?'<br>'+onOffer+' på tilbud':''}${saved>0?'<br>sparer ca. '+kr(saved):''}</div></div>
-    ${prLoading?`<div class="meta" style="margin:-4px 2px 10px">Henter priser … ${PR.done} af ${new Set(open.map(x=>x.name)).size}</div>`:''}
+    ${prLoading?`<div class="meta" style="margin:-4px 2px 10px">${PR.offers?'Matcher varer … '+PR.done+' af '+PR.total:'Henter denne uges aviser …'}</div>`:''}
     ${notes.map(n=>`<div class="note" style="margin:0 0 10px">${n}</div>`).join('')}
     <div class="list" id="prbody">${rows}</div>
-    <div class="meta" style="margin:8px 2px 0;font-size:13px">Tryk på en vare for at vælge et andet produkt. Valget huskes. Priserne er et skøn – nogle tilbud kræver medlemskab eller køb af flere.</div>
-    ${wasteHtml}`;
-  openSheet(html);
+    <div class="meta" style="margin:8px 2px 0;font-size:13px">Tryk på en vare for at vælge et andet produkt. Valget huskes – også i de kommende uger, hvis samme tilbud kommer igen. Priserne er et skøn; nogle tilbud kræver medlemskab eller køb af flere.</div>
+    ${wasteHtml}`);
 }
 function pickPrice(k,id){act('setPriceChoice',{name:k,pick:id});prOpen=null;drawPrices()}
+async function checkSalling(btn){
+  btn.textContent='Tjekker …';
+  try{const r=await api('/api/salling-check');
+    btn.textContent=r.ok?'✓ Salling-nøglen virker':r.reason?r.reason:'Fejl: produktforslag '+r.productSuggestions+', nedsatte varer '+r.foodWaste;
+  }catch(e){btn.textContent='Kunne ikke tjekke: '+e.message}
+}
 
 /* ---------- kategorier ---------- */
 let newCatFor='add';
@@ -1045,6 +1159,9 @@ function renderUs(){
     ${st==='off'||st==='granted'?'<button class="btn primary" style="margin-top:10px" onclick="enablePush()">Slå notifikationer til</button>':''}
     ${st==='on'?'<button class="btn soft" style="margin-top:10px" onclick="testPush()">Send en test til mig selv</button>':''}
     <div class="note">Du får besked, når ${esc(uname(other()))} bruger en vare op, sætter noget på listen eller tager indkøbet. I får begge en besked om morgenen, hvis noget udløber i dag eller i morgen.</div>
+    <div class="section-title">Priser</div>
+    <div class="note" style="margin-top:0">Tilbud fra Bilka og føtex virker uden opsætning. <b>Normalpriser og nedsatte varer</b> kræver en gratis nøgle fra Salling Group, som lægges på serveren som <code>SALLING_TOKEN</code> (se guiden i projektet).</div>
+    <button class="btn soft" style="margin-top:10px" onclick="checkSalling(this)">Tjek om Salling-nøglen virker</button>
     <div class="section-title">Postnummer</div>
     <form class="addbar" style="margin-top:0" onsubmit="event.preventDefault();act('setSetting',{key:'zip',value:$('uzip').value.trim()});toast('Postnummer gemt')"><input id="uzip" inputmode="numeric" maxlength="4" placeholder="Fx 8000" value="${esc((S.settings&&S.settings.zip)||'')}"><button>Gem</button></form>
     <div class="note">Bruges til at finde nedsatte varer i Bilka og føtex i nærheden, når I beregner prisen på indkøbslisten.</div>
