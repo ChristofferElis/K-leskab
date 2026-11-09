@@ -128,6 +128,7 @@ nav svg{width:26px;height:26px}
 .chip.ai{background:#efe7fb;color:#6a3fb5}
 .aiwhy{font-size:13.5px;color:#6a3fb5;background:#f5effd;border-radius:10px;padding:8px 10px}
 .rawout{white-space:pre-wrap;word-break:break-all;font:12px/1.4 ui-monospace,Menlo,monospace;background:#fff;border:1px solid var(--line);border-radius:12px;padding:10px;margin-top:8px;max-height:320px;overflow:auto;user-select:text;-webkit-user-select:text}
+.x.catbtn{font-size:20px;letter-spacing:1px;color:#9aa39e}
 .grab{width:40px;height:5px;border-radius:3px;background:#d6d1c8;margin:0 auto 14px}
 .sheet h2{margin:0 0 2px;font-size:24px;letter-spacing:-.02em}
 .sheet .meta{margin-bottom:16px}
@@ -361,6 +362,14 @@ function reduce(S,a){
     case 'setSetting':
       if(a.key==='zip')S.settings.zip=/^\d{4}$/.test(a.value||'')?a.value:null;
       break;
+    case 'setShopCat':
+      S.shopCat=S.shopCat||{};if(a.name&&a.cat)S.shopCat[String(a.name).toLowerCase().slice(0,80)]={c:String(a.cat).slice(0,40),src:'user'};
+      break;
+    case 'shopCats':{
+      S.shopCat=S.shopCat||{};var sm=a.map||{};
+      for(var sk in sm){var key2=String(sk).toLowerCase().slice(0,80);if(!(S.shopCat[key2]&&S.shopCat[key2].src==='user'))S.shopCat[key2]={c:String(sm[sk]).slice(0,40),src:'ai'}}
+      var sks=Object.keys(S.shopCat);if(sks.length>800)delete S.shopCat[sks[0]];
+      break;}
     case 'aiMemo':{
       S.aiMemo=S.aiMemo||{};var mm=a.memos||{};
       for(var mk in mm){var v=mm[mk]||{};S.aiMemo[String(mk).slice(0,80)]={v:+v.v||1,q:String(v.q||'').slice(0,80),id:v.id?String(v.id).slice(0,120):null,none:!!v.none,n:Math.max(1,Math.min(50,+v.n||1)),why:String(v.why||'').slice(0,140)}}
@@ -469,6 +478,7 @@ const persist=()=>{LS.set('kb-state',S);LS.set('kb-pending',pending)};
 let demoSrv=null;
 function demoApi(path,body){
   if(!demoSrv)demoSrv=LS.get('kb-demo-srv',null)||demoSeed();
+  if(path==='/api/ai-classify'){const cats={};(body.names||[]).forEach(n=>cats[n]='Kolonial');return {cats}}
   if(path==='/api/ai-match'){
     return {model:'demo',picks:(body.items||[]).map(it=>{const c=it.cands.slice().sort((a,b)=>(pscore(it.name,b.t)>=.75)-(pscore(it.name,a.t)>=.75)||(/tilbud/i.test(b.s)-/tilbud/i.test(a.s))||a.p-b.p)[0];return {k:it.k,id:c.id,n:it.qty,why:'Demo: i den rigtige app forklarer AI\'en sit valg her'}})};
   }
@@ -1296,9 +1306,15 @@ function renderShop(){
   const row=s=>`<div class="row ${s.done?'done':''}">
       <button class="check ${s.done?'on':''}" onclick="act('shopToggle',{shopId:'${esc(s.id)}'})" aria-label="Købt"></button>
       <button class="grow" style="text-align:left" onclick="act('shopToggle',{shopId:'${esc(s.id)}'})"><div class="name">${esc(s.name)}</div><div class="meta">${s.qty} ${esc(s.unit)} · ${esc(uname(s.by))}, ${when(s.at)}</div></button>
+      ${s.done?'':`<button class="x catbtn" onclick="pickShopCat('${esc(s.id)}')" aria-label="Skift kategori">⋯</button>`}
       <button class="x" onclick="act('shopRemove',{shopId:'${esc(s.id)}'})" aria-label="Fjern">×</button></div>`;
   let h=b+`<form class="addbar" onsubmit="event.preventDefault();manualAdd()"><input id="sa" placeholder="Tilføj noget til listen…" list="known2" autocomplete="off" enterkeyhint="send"><datalist id="known2">${nameList().map(n=>`<option value="${esc(n)}">`).join('')}</datalist><button>Tilføj</button></form>`;
-  if(open.length)h+='<div class="section-title">Skal købes</div><div class="list">'+open.map(row).join('')+'</div>';
+  if(open.length){
+    const groups={};open.forEach(x=>{const c=shopCatOf(x.name);(groups[c]=groups[c]||[]).push(x)});
+    SHOP_CATS.concat(['Andet']).filter((c,i,a)=>a.indexOf(c)===i&&groups[c]).forEach(c=>{
+      h+=`<div class="section-title">${esc(c)} <span class="n">· ${groups[c].length}</span></div><div class="list">${groups[c].map(row).join('')}</div>`});
+    setTimeout(classifyUnknown,50);
+  }
   if(done.length){
     h+='<div class="section-title">I kurven</div><div class="list">'+done.map(row).join('')+'</div>';
     h+=`<button class="btn primary" style="margin-top:14px" onclick="finish()">Læg ${done.length} ${done.length===1?'vare':'varer'} i køleskabet</button>`;
@@ -1308,6 +1324,70 @@ function renderShop(){
   if(S.activity.length)h+='<div class="section-title">Seneste</div><div class="list feed">'+S.activity.slice(0,8).map(a=>`<div><time>${when(a.at)}</time><b>${esc(uname(a.who))}</b> ${esc(a.text)}</div>`).join('')+'</div>';
   $('main').innerHTML=h;
 }
+/* ---------- butikskategorier på indkøbslisten ---------- */
+const SHOP_CATS=['Frugt & grønt','Brød & bageri','Kød & fisk','Pålæg','Mejeri & æg','Køl & færdigmad','Frost','Kolonial','Krydderier & saucer','Snacks & slik','Drikkevarer','Husholdning','Personlig pleje','Andet'];
+/* ordbog: hele udtryk og ordendelser (danske sammensatte ord har hovedordet til sidst) */
+const SHOP_RULES={
+  'Kolonial':['hakket tomat','hakkede tomater','flåede tomater','tomater på dåse','kokosmælk','tomatpuré','pasta','spaghetti','penne','lasagneplader','makaroni','ris','risotto','nudler','mel','hvedemel','sukker','flormelis','bagepulver','gær','havregryn','gryn','müsli','mysli','granola','cornflakes','morgenmad','linser','bønner','kikærter','bouillon','fond','olie','olivenolie','rapsolie','eddike','honning','syltetøj','marmelade','nutella','peanutbutter','jordnøddesmør','tun','makrel','dåse','konserves','majs','kapers','oliven','couscous','bulgur','quinoa','tortillachips','tacoskaller','kokosmel','rosiner','pålægschokolade'],
+  'Frugt & grønt':['æble','banan','pære','appelsin','mandarin','klementin','citron','lime','mango','avocado','bær','vindrue','drue','melon','kiwi','ananas','granatæble','agurk','tomat','salat','spinat','rucola','kål','broccoli','blomkål','gulerod','gulerødder','kartoffel','kartofler','løg','hvidløg','porre','peberfrugt','chili','ingefær','squash','aubergine','champignon','svamp','svampe','persille','basilikum','koriander','purløg','dild','mynte','rødbede','selleri','asparges','radise','citrongræs','sukkerærter','bønnespirer','krydderurter','frugt','grønt','grøntsager','majskolber','sødkartofler'],
+  'Brød & bageri':['brød','rugbrød','franskbrød','toastbrød','boller','bolle','rundstykker','pitabrød','pita','tortilla','tortillas','wraps','wrap','croissant','knækbrød','bagel','burgerboller','flutes','baguette','kage','wienerbrød','fladbrød'],
+  'Kød & fisk':['kød','oksekød','svinekød','grisekød','kalvekød','lammekød','kylling','kyllingebryst','kyllingefilet','kyllingelår','kalkun','fars','bøf','bøffer','steak','mørbrad','kotelet','koteletter','flæsk','bacon','pølse','pølser','medister','laks','torsk','rødspætte','rejer','fisk','fiskefrikadeller','frikadeller','hakket','culotte','entrecote','vildt','and'],
+  'Pålæg':['pålæg','pålægssalat','skinke','hamburgerryg','rullepølse','spegepølse','salami','chorizo','leverpostej','postej','kalkunbryst','roastbeef','hønsesalat','tunsalat','æggesalat','sylte'],
+  'Mejeri & æg':['mælk','letmælk','sødmælk','skummetmælk','minimælk','kærnemælk','fløde','piskefløde','madlavningsfløde','yoghurt','skyr','ymer','a38','creme fraiche','cremefraiche','smør','smørbar','margarine','ost','skiveost','revet ost','mozzarella','feta','parmesan','burrata','halloumi','hytteost','flødeost','smøreost','mascarpone','ricotta','æg','havredrik','sojadrik','mandeldrik','risdrik','plantedrik','kvark','cheddar'],
+  'Køl & færdigmad':['hummus','humus','tzatziki','færdigret','færdigretter','pizzadej','dej','butterdej','pastasalat','kartoffelsalat','frisk pasta','tortellini','ravioli','gnocchi','tofu','falafel'],
+  'Frost':['frost','vaniljeis','flødeis','chokoladeis','sorbet','isvafler','softice','frossen','frosne','frysepizza','is','fiskepinde','pommes','pommes frites','frosne ærter','ærter','spinat frost'],
+  'Krydderier & saucer':['salt','peber','krydderi','krydderier','karry','paprika','kanel','spidskommen','oregano','timian','ketchup','sennep','mayonnaise','mayo','remoulade','dressing','sauce','soja','sojasauce','sriracha','pesto','tabasco','salsa','chilisauce','fiskesauce','vaniljesukker'],
+  'Snacks & slik':['chips','slik','chokolade','mælkechokolade','kiks','småkager','nødder','mandler','cashewnødder','peanuts','popcorn','vingummi','lakrids','karamel','karameller','bolsjer','snack','snacks','müslibar','proteinbar','riskiks'],
+  'Drikkevarer':['vand','danskvand','sodavand','juice','saft','øl','vin','rødvin','hvidvin','kaffe','te','kakao','cola','energidrik','kildevand','mineralvand','læskedrik','smoothie','iste','cider'],
+  'Husholdning':['toiletpapir','toiletruller','køkkenrulle','køkkenruller','køkkenpapir','opvask','opvaskemiddel','opvasketabs','opvasketabletter','maskinopvask','vaskemiddel','vaskepulver','skyllemiddel','affaldsposer','poser','fryseposer','stanniol','alufolie','bagepapir','husholdningsfilm','rengøring','rengøringsmiddel','svampe','klude','batterier','pærer','stearinlys','lys','servietter','tændstikker'],
+  'Personlig pleje':['shampoo','balsam','sæbe','håndsæbe','showergel','tandpasta','tandbørste','tandtråd','deodorant','deo','bind','tamponer','barberblade','barberskum','creme','bodylotion','solcreme','vatpinde','vatrondeller','plaster','hårvoks','bleer','vådservietter'],
+};
+const SHOP_INDEX=(()=>{const L=[];for(const c in SHOP_RULES)SHOP_RULES[c].forEach(w=>L.push([w,c]));return L.sort((a,b)=>b[0].length-a[0].length)})();
+function guessShopCat(name){
+  const q=prepName(name).q.toLowerCase().replace(/[^a-zæøåäöüé0-9 ]+/g,' ').replace(/\s+/g,' ').trim();
+  if(!q)return null;
+  for(const [w,c] of SHOP_INDEX)if(w.includes(' ')&&(' '+q+' ').includes(' '+w+' '))return c;
+  const T=q.split(' ').filter(t=>!STOP.has(t));
+  /* hovedordet står sidst: prøv sidste ord først */
+  const st=x=>x.length>3?x.replace(/(erne|ene|er|en|e|r|s)$/,''):x;
+  const SHORT_NO=['and','lys','mel','tun','is'];
+  for(let i=T.length-1;i>=0;i--){const t=T[i],ts=st(t);
+    for(const [w,c] of SHOP_INDEX){if(w.includes(' '))continue;
+      if(t===w)return c;
+      const ws=st(w);
+      if(w.length>=3&&!SHORT_NO.includes(w)&&(t.endsWith(w)||(ws.length>=3&&ts.endsWith(ws))))return c}}
+  return null;
+}
+const FRIDGE_TO_SHOP={'mejeri':'Mejeri & æg','pålæg':'Pålæg','grøntsager':'Frugt & grønt','frugt':'Frugt & grønt','dressing':'Krydderier & saucer','kød & fisk':'Kød & fisk','kød':'Kød & fisk','drikkevarer':'Drikkevarer'};
+function shopCatOf(name){
+  const k=pkey(name),m=S.shopCat&&S.shopCat[k];
+  if(m&&m.src==='user'&&SHOP_CATS.includes(m.c))return m.c;
+  const g=guessShopCat(name);if(g)return g;
+  const fc=catOf(S,name);if(fc&&FRIDGE_TO_SHOP[fc.toLowerCase()])return FRIDGE_TO_SHOP[fc.toLowerCase()];
+  if(m&&SHOP_CATS.includes(m.c))return m.c;
+  return 'Andet';
+}
+let classifying=false;const classifyTried=new Set();
+async function classifyUnknown(){
+  if(classifying||tab!=='shop')return;
+  const names=S.shopping.filter(x=>!x.done).map(x=>x.name).filter(n=>{const k=pkey(n);return shopCatOf(n)==='Andet'&&!(S.shopCat&&S.shopCat[k])&&!classifyTried.has(k)}).slice(0,20);
+  if(!names.length)return;
+  names.forEach(n=>classifyTried.add(pkey(n)));
+  classifying=true;
+  try{
+    const r=await api('/api/ai-classify',{names,cats:SHOP_CATS});
+    const map={};for(const n of names){const c=r.cats&&(r.cats[n]||r.cats[pkey(n)]);if(c&&SHOP_CATS.includes(c))map[pkey(n)]=c}
+    if(Object.keys(map).length)act('shopCats',{map});
+  }catch(e){}
+  classifying=false;
+}
+function pickShopCat(id){
+  const it=S.shopping.find(x=>x.id===id);if(!it)return;
+  const cur=shopCatOf(it.name);
+  openSheet(`<h2>${esc(it.name)}</h2><div class="meta">Hvor i butikken ligger den? Valget huskes til næste gang.</div>
+    <div class="chips">${SHOP_CATS.map((c,i)=>`<button class="${c===cur?'on':''}" onclick="setShopCatIdx('${esc(id)}',${i})">${esc(c)}</button>`).join('')}</div>`);
+}
+function setShopCatIdx(id,i){const it=S.shopping.find(x=>x.id===id);if(!it)return;act('setShopCat',{name:pkey(it.name),cat:SHOP_CATS[i]});closeSheet()}
 function claim(){act('claim');toast('Du står for indkøbet',uname(other())+' får en notifikation')}
 function manualAdd(){
   const el=$('sa'),v=el.value.trim();if(!v)return;
